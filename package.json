@@ -1,0 +1,25 @@
+{
+  "name": "school-van-management-system-backend",
+  "version": "1.0.0",
+  "description": "This is the backend code of school van management system developed in the final course work for the gratuation in Systems analysis and development",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/camily-ghellar/school-van-management-system-backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/camily-ghellar/school-van-management-system-backend/issues"
+  },
+  "homepage": "https://github.com/camily-ghellar/school-van-management-system-backend#readme",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
+    "dotenv": "^16.4.7",
+    "pg": "^8.14.1"
+  }
+}
