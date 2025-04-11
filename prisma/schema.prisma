@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model children {
+  id             Int        @id @default(autoincrement())
+  child_name     String     @db.VarChar(255)
+  starting_point String     @db.VarChar(255)
+  destination    String     @db.VarChar(255)
+  guardian_id    Int?
+  driver_id      Int?
+  birth_date     DateTime?  @db.Date
+  school         String?    @db.VarChar(255)
+  drivers        drivers?   @relation(fields: [driver_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  guardians      guardians? @relation(fields: [guardian_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model drivers {
+  id             Int        @id @default(autoincrement())
+  driver_name    String     @db.VarChar(255)
+  phone          String     @db.VarChar(15)
+  email          String     @unique @db.VarChar(255)
+  password       String     @db.VarChar(255)
+  driver_license String     @db.VarChar(20)
+  children       children[]
+  trips          trips[]
+}
+
+model guardians {
+  id            Int        @id @default(autoincrement())
+  guardian_name String     @db.VarChar(255)
+  phone         String     @db.VarChar(15)
+  email         String     @unique @db.VarChar(255)
+  password      String     @db.VarChar(255)
+  children      children[]
+}
+
+model trips {
+  id             Int       @id @default(autoincrement())
+  driver_id      Int?
+  children_ids   Int[]
+  departure_time DateTime? @db.Time(6)
+  arrival_time   DateTime? @db.Time(6)
+  trip_date      DateTime? @default(dbgenerated("CURRENT_DATE")) @db.Date
+  drivers        drivers?  @relation(fields: [driver_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
