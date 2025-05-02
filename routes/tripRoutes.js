@@ -6,13 +6,15 @@ const router = Router();
 const prisma = new PrismaClient();
 
 router.post('/registration', authenticateToken, async (req, res) => {
-  const { departure_time, arrival_time } = req.body;
+  const { departure_time, arrival_time, starting_point, ending_point} = req.body;
 
   try {
     const trip = await prisma.trip.create({
       data: {
         departure_time,
-        arrival_time
+        arrival_time,
+        starting_point,
+        ending_point
       }
     });
 
