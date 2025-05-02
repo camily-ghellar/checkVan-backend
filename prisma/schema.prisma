@@ -7,45 +7,50 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model children {
-  id             Int        @id @default(autoincrement())
-  child_name     String     @db.VarChar(255)
-  starting_point String     @db.VarChar(255)
-  destination    String     @db.VarChar(255)
-  guardian_id    Int?
-  driver_id      Int?
-  birth_date     DateTime?  @db.Date
-  school         String?    @db.VarChar(255)
-  drivers        drivers?   @relation(fields: [driver_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  guardians      guardians? @relation(fields: [guardian_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+model student_team {
+  student_id Int
+  team_id    Int
+  student    student @relation(fields: [student_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  team       team    @relation(fields: [team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([student_id, team_id])
 }
 
-model drivers {
-  id             Int        @id @default(autoincrement())
-  driver_name    String     @db.VarChar(255)
-  phone          String     @db.VarChar(15)
-  email          String     @unique @db.VarChar(255)
-  password       String     @db.VarChar(255)
-  driver_license String     @db.VarChar(20)
-  children       children[]
-  trips          trips[]
+model team {
+  id           Int            @id @default(autoincrement())
+  driver_id    Int
+  trip_id      Int
+  name         String         @db.VarChar(255)
+  student_team student_team[]
+  driver       user           @relation(fields: [driver_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  trip         trip           @relation(fields: [trip_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
-model guardians {
-  id            Int        @id @default(autoincrement())
-  guardian_name String     @db.VarChar(255)
-  phone         String     @db.VarChar(15)
-  email         String     @unique @db.VarChar(255)
-  password      String     @db.VarChar(255)
-  children      children[]
-}
-
-model trips {
+model trip {
   id             Int       @id @default(autoincrement())
-  driver_id      Int?
-  children_ids   Int[]
   departure_time DateTime? @db.Time(6)
   arrival_time   DateTime? @db.Time(6)
-  trip_date      DateTime? @default(dbgenerated("CURRENT_DATE")) @db.Date
-  drivers        drivers?  @relation(fields: [driver_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  team           team[]
+}
+
+model user {
+  id             Int       @id @default(autoincrement())
+  email          String    @unique @db.VarChar(255)
+  password       String    @db.VarChar(255)
+  name           String    @db.VarChar(255)
+  phone          String?   @db.VarChar(15)
+  birth_date     DateTime? @db.Date
+  role           String    @db.VarChar(20)
+  driver_license String?   @db.VarChar(20)
+  student        student[]
+  team           team[]
+}
+
+model student {
+  id           Int            @id @default(autoincrement())
+  name         String         @db.VarChar(255)
+  birth_date   DateTime       @db.Date
+  guardian_id  Int
+  user         user           @relation(fields: [guardian_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  student_team student_team[]
 }

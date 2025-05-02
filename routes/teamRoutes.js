@@ -6,20 +6,21 @@ const router = Router();
 const prisma = new PrismaClient();
 
 router.post('/registration', authenticateToken, async (req, res) => {
-  const { name, birth_date } = req.body;
+  const { name, trip_id } = req.body;
+  const driver_id = req.user.id;
 
   try {
-    const student = await prisma.student.create({
+    const team = await prisma.team.create({
       data: {
         name,
-        birth_date: new Date(birth_date),
-        guardian_id: req.user.id
+        driver_id,
+        trip_id
       }
     });
 
-    res.status(201).json({ message: 'Estudante cadastrado com sucesso', student });
+    res.status(201).json({ message: 'Turma cadastrada com sucesso', team });
   } catch (error) {
-    res.status(500).json({ message: 'Erro ao cadastrar estudante', error: error.message });
+    res.status(500).json({ message: 'Erro ao cadastrar turma', error: error.message });
   }
 });
 
