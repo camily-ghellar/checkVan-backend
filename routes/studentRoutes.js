@@ -17,9 +17,9 @@ router.post('/registration', authenticateToken, async (req, res) => {
       }
     });
 
-    res.status(201).json({ message: 'Estudante cadastrado com sucesso', student });
+    res.status(201).json({ message: 'Estudante cadastrado com sucesso.', student });
   } catch (error) {
-    res.status(500).json({ message: 'Erro ao cadastrar estudante', error: error.message });
+    res.status(500).json({ message: 'Erro ao cadastrar estudante.', error: error.message });
   }
 });
 

@@ -14,10 +14,15 @@ router.post('/registration', async (req, res) => {
   const { name, phone, email, password, role, driver_license, birth_date } = req.body;
 
   if (!['guardian', 'driver'].includes(role)) {
-    return res.status(400).json({ message: 'Role inválido' });
+    return res.status(400).json({ message: 'Role inválido.' });
   }
 
   try {
+    const existingUser = await prisma.user.findUnique({where:{email}})
+    if(existingUser){
+      return res.status(409).json({message: 'Já existe um usuário com este e-mail.'});
+    }
+
     const hashedPassword = hashSync(password, 10);
     const user = await prisma.user.create({
       data: {
@@ -31,9 +36,9 @@ router.post('/registration', async (req, res) => {
       }
     });
 
-    res.status(201).json({ message: 'Usuário cadastrado com sucesso', userId: user.id });
+    res.status(201).json({ message: 'Usuário cadastrado com sucesso.', userId: user.id });
   } catch (err) {
-    res.status(500).json({ message: 'Erro ao cadastrar usuário', error: err.message });
+    res.status(500).json({ message: 'Erro interno ao cadastrar usuário.', error: err.message });
   }
 });
 
@@ -44,13 +49,18 @@ router.post('/login', async (req, res) => {
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user || !compareSync(password, user.password)) {
-      return res.status(400).json({ message: 'Email ou senha inválidos' });
+      return res.status(400).json({ message: 'Usuário não encontrado.' });
+    }
+
+    const passwordMatch = compareSync(password, user.password);
+    if(!passwordMatch){
+      return res.status(401).json({message: 'Senha incorreta.'});
     }
 
     const token = sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    res.json({ message: 'Login bem-sucedido', token });
+    res.json({ message: 'Login realizado com sucesso.', token });
   } catch (err) {
-    res.status(500).json({ message: 'Erro no login', error: err.message });
+    res.status(500).json({ message: 'Erro interno ao tentar fazer login.', error: err.message });
   }
 });
 
@@ -73,9 +83,9 @@ router.put('/update', authenticateToken, async (req, res) => {
       }
     });
 
-    res.json({ message: 'Usuário atualizado com sucesso', user: updatedUser });
+    res.json({ message: 'Informações atualizadas com sucesso.', user: updatedUser });
   } catch (err) {
-    res.status(500).json({ message: 'Erro ao atualizar usuário', error: err.message });
+    res.status(500).json({ message: 'Erro ao atualizar informações.', error: err.message });
   }
 });
 
@@ -107,13 +117,14 @@ router.post('/recoverPassword', async (req, res) => {
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: email,
-      subject: 'Recuperação de Senha',
-      text: `Sua senha provisória é: ${tempPassword}`
+      subject: 'Recupere sua senha do APP de Van Escolar',
+      text: `Para recuperar a sua senha no aplicativo de gerenciamento de van escolar, utilize a senha provisória abaixo para fazer o login na sua conta. Após fazer o login, você pode ir na tela de atualizar as informações da sua conta e alterar sua senha. Você também pode continuar utilizando esta senha gerada por nós se assim preferir.
+      Sua senha provisória é: ${tempPassword}`
     });
 
-    res.json({ message: 'Senha provisória enviada para o e-mail' });
+    res.json({ message: 'Senha provisória enviada para o e-mail de login.' });
   } catch (err) {
-    res.status(500).json({ message: 'Erro ao recuperar senha', error: err.message });
+    res.status(500).json({ message: 'Erro ao recuperar senha.', error: err.message });
   }
 });
 
@@ -135,12 +146,12 @@ router.get('/getProfile', authenticateToken, async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ message: 'Usuário não encontrado' });
+      return res.status(404).json({ message: 'Usuário não encontrado.' });
     }
 
     res.json({ user });
   } catch (err) {
-    res.status(500).json({ message: 'Erro ao buscar dados do usuário', error: err.message });
+    res.status(500).json({ message: 'Erro ao buscar dados do usuário.', error: err.message });
   }
 });
 

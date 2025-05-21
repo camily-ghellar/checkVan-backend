@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import userRoutes from './routes/userRoutes.js';
-import childRoutes from './routes/childRoutes.js';
+import childRoutes from './routes/studentRoutes.js';
 import tripRoutes from './routes/tripRoutes.js';
 
 dotenv.config();
@@ -11,7 +11,7 @@ const app = express();
 app.use(express.json());
 
 app.use('/user', userRoutes);
-app.use('/child', childRoutes);
+app.use('/student', studentRoutes);
 app.use('/trip', tripRoutes);
 
 const PORT = process.env.PORT || 3000;
