@@ -50,6 +50,7 @@ model student {
   id           Int            @id @default(autoincrement())
   name         String         @db.VarChar(255)
   birth_date   DateTime       @db.Date
+  gender       String         @db.VarChar(255)
   guardian_id  Int
   user         user           @relation(fields: [guardian_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   student_team student_team[]

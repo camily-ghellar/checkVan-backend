@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import userRoutes from './routes/userRoutes.js';
-import childRoutes from './routes/studentRoutes.js';
+import studentRoutes from './routes/studentRoutes.js';
 import tripRoutes from './routes/tripRoutes.js';
 
 dotenv.config();
