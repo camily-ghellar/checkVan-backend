@@ -56,13 +56,17 @@ router.put('/update', authenticateToken, async (req, res) => {
   }
 });
 
+router.get('/getProfile/:studentId', authenticateToken, async (req, res) => {
+  const studentIdRaw = req.params.studentId;
+  const studentId = parseInt(studentIdRaw, 10);
 
-router.get('/getProfile', authenticateToken, async (req, res) => {
-  const guardianId = req.user.id;
+  if (Number.isNaN(studentId)) {
+    return res.status(400).json({ message: 'ID do estudante inválido.' });
+  }
 
   try {
-    const students = await prisma.student.findMany({
-      where: { guardian_id: guardianId },
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
       select: {
         id: true,
         name: true,
@@ -72,13 +76,13 @@ router.get('/getProfile', authenticateToken, async (req, res) => {
       }
     });
 
-    if (!students || students.length === 0) {
-      return res.status(404).json({ message: 'Nenhum estudante encontrado para este usuário.' });
+    if (!student) {
+      return res.status(404).json({ message: 'Estudante não encontrado.' });
     }
 
-    res.json({ students });
+    res.json({ student });
   } catch (err) {
-    res.status(500).json({ message: 'Erro ao buscar dados dos estudantes.', error: err.message });
+    res.status(500).json({ message: 'Erro ao buscar dados do estudante.', error: err.message });
   }
 });
 

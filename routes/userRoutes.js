@@ -155,4 +155,29 @@ router.get('/getProfile', authenticateToken, async (req, res) => {
   }
 });
 
+router.get('/getStudents', authenticateToken, async (req, res) => {
+  const guardianId = req.user.id;
+
+  try {
+    const students = await prisma.student.findMany({
+      where: { guardian_id: guardianId },
+      select: {
+        id: true,
+        name: true,
+        birth_date: true,
+        gender: true,
+        guardian_id: true
+      }
+    });
+
+    if (!students || students.length === 0) {
+      return res.status(404).json({ message: 'Nenhum estudante encontrado para este usuário.' });
+    }
+
+    res.json({ students });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao buscar dados dos estudantes.', error: err.message });
+  }
+});
+
 export default router;
