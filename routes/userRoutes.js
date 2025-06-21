@@ -161,6 +161,9 @@ router.get('/getStudents', authenticateToken, async (req, res) => {
   try {
     const students = await prisma.student.findMany({
       where: { guardian_id: guardianId },
+      orderBy: {
+        name: 'asc'
+      },
       select: {
         id: true,
         name: true,

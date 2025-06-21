@@ -30,19 +30,23 @@ router.post('/registration', authenticateToken, async (req, res) => {
 
 router.put('/update', authenticateToken, async (req, res) => {
   const guardianId = req.user.id;
-  const { name, birth_date, gender } = req.body;
+  const { id, name, birth_date, gender } = req.body;
+
+  if (!id) {
+    return res.status(400).json({ message: 'O ID do estudante é obrigatório.' });
+  }
 
   try {
-    const student = await prisma.student.findFirst({
-      where: { guardian_id: guardianId }
+    const studentToUpdate = await prisma.student.findUnique({
+      where: { id: id }
     });
 
-    if (!student) {
-      return res.status(404).json({ message: 'Estudante não encontrado para este usuário.' });
+    if (!studentToUpdate || studentToUpdate.guardian_id !== guardianId) {
+      return res.status(404).json({ message: 'Estudante não encontrado ou não pertence a este usuário.' });
     }
 
     const updatedStudent = await prisma.student.update({
-      where: { id: student.id },
+      where: { id: id },
       data: {
         ...(name && { name }),
         ...(birth_date && { birth_date: new Date(birth_date) }),
@@ -113,6 +117,30 @@ router.delete('/delete', authenticateToken, async (req, res) => {
   }
 });
 
+router.get('/getAllStudents', authenticateToken, async (req, res) => {
 
+  try {
+    const students = await prisma.student.findMany({
+      orderBy: {
+        name: 'asc'
+      },
+      select: {
+        id: true,
+        name: true,
+        birth_date: true,
+        gender: true,
+        guardian_id: true
+      }
+    });
+
+    if (!students || students.length === 0) {
+      return res.status(404).json({ message: 'Nenhum estudante encontrado para este usuário.' });
+    }
+
+    res.json({ students });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao buscar dados dos estudantes.', error: err.message });
+  }
+});
 
 export default router;
