@@ -5,7 +5,7 @@ import authenticateToken from '../middlewares/auth.js';
 const router = Router();
 const prisma = new PrismaClient();
 
-router.post('/assign', authenticateToken, async (req, res) => {
+router.post('/assignStudentToTeam', authenticateToken, async (req, res) => {
   const { student_id, team_id } = req.body;
 
   try {
