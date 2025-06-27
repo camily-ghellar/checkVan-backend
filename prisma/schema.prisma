@@ -30,6 +30,8 @@ model trip {
   id             Int       @id @default(autoincrement())
   departure_time DateTime? @db.Time(6)
   arrival_time   DateTime? @db.Time(6)
+  starting_point String         @db.VarChar(255)
+  ending_point   String         @db.VarChar(255)
   team           team[]
 }
 
