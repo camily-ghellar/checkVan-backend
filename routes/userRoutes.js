@@ -95,7 +95,7 @@ router.post('/recoverPassword', async (req, res) => {
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-      return res.status(404).json({ message: 'Usuário não encontrado' });
+      return res.status(404).json({ message: 'Usuário não encontrado.' });
     }
 
     const tempPassword = Math.random().toString(36).slice(-8);
