@@ -113,6 +113,45 @@ router.delete('/delete', authenticateToken, async (req, res) => {
   }
 });
 
+// Rota para buscar alunos por ID da turma (team_id) trip -> team -> studentTeam
+router.get('/getByTeamId/:teamId', authenticateToken, async (req, res) => {
+  const teamId = parseInt(req.params.teamId, 10);
+
+  if (isNaN(teamId)) {
+    return res.status(400).json({ message: 'O ID da turma é inválido.' });
+  }
+
+  try {
+    // 1. Encontra todos os links na tabela student_team para obter os IDs dos alunos
+    const studentTeamLinks = await prisma.student_team.findMany({
+      where: { team_id: teamId },
+      select: { student_id: true } // Seleciona apenas o ID do aluno
+    });
+
+    // Se não houver alunos na turma, retorna uma lista vazia
+    if (studentTeamLinks.length === 0) {
+      return res.json({ students: [] });
+    }
+
+    // 2. Extrai apenas os IDs para uma lista simples: [1, 5, 12]
+    const studentIds = studentTeamLinks.map(link => link.student_id);
+
+    // 3. Busca os dados completos de todos os alunos cujos IDs estão na lista
+    const students = await prisma.student.findMany({
+      where: {
+        id: {
+          in: studentIds // 'in' é o operador para "está contido em"
+        }
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    res.json({ students });
+
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao buscar dados dos estudantes.', error: err.message });
+  }
+});
 
 
 export default router;
