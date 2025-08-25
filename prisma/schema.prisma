@@ -7,34 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model student_team {
-  student_id Int
-  team_id    Int
-  student    student @relation(fields: [student_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  team       team    @relation(fields: [team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@id([student_id, team_id])
-}
-
-model team {
-  id           Int            @id @default(autoincrement())
-  driver_id    Int
-  trip_id      Int
-  name         String         @db.VarChar(255)
-  student_team student_team[]
-  driver       user           @relation(fields: [driver_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  trip         trip           @relation(fields: [trip_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
-
-model trip {
-  id             Int       @id @default(autoincrement())
-  departure_time DateTime? @db.Time(6)
-  arrival_time   DateTime? @db.Time(6)
-  starting_point String   @db.VarChar(255)
-  ending_point   String   @db.VarChar(255)
-  team           team[]
-}
-
 model user {
   id             Int       @id @default(autoincrement())
   email          String    @unique @db.VarChar(255)
@@ -44,16 +16,69 @@ model user {
   birth_date     DateTime? @db.Date
   role           String    @db.VarChar(20)
   driver_license String?   @db.VarChar(20)
-  student        student[]
-  team           team[]
+  
+  students       student[]        @relation("guardian_students") 
+  teams          team[]           @relation("driver_teams")      
+}
+
+model school {
+  id        Int       @id @default(autoincrement())
+  name      String    @db.VarChar(255)
+  address   String?   @db.VarChar(255)
+  latitude  Float?
+  longitude Float?
+
+  students  student[]
+  trips     trip[]
 }
 
 model student {
-  id           Int            @id @default(autoincrement())
-  name         String         @db.VarChar(255)
-  birth_date   DateTime       @db.Date
-  gender       String         @db.VarChar(255)
-  guardian_id  Int
-  user         user           @relation(fields: [guardian_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id             Int      @id @default(autoincrement())
+  name           String   @db.VarChar(255)
+  birth_date     DateTime @db.Date
+  gender         String   @db.VarChar(255)
+  guardian_id    Int
+  school_id      Int
+  address        String?  @db.VarChar(255)
+  latitude       Float?
+  longitude      Float?
+  is_going_today Boolean  @default(false)
+
+  user         user    @relation("guardian_students", fields: [guardian_id], references: [id])
+  school       school  @relation(fields: [school_id], references: [id])
   student_team student_team[]
+}
+
+model trip {
+  id             Int       @id @default(autoincrement())
+  departure_time DateTime?
+  arrival_time   DateTime?
+  starting_point String    @db.VarChar(255)
+  starting_lat   Float?
+  starting_lon   Float?
+  school_id      Int
+
+  school school @relation(fields: [school_id], references: [id])
+  team   team[]
+}
+
+model team {
+  id       Int    @id @default(autoincrement())
+  driver_id Int
+  trip_id  Int?
+  name     String @db.VarChar(255)
+
+  driver       user @relation("driver_teams", fields: [driver_id], references: [id])
+  trip         trip? @relation(fields: [trip_id], references: [id])
+  student_team student_team[]
+}
+
+model student_team {
+  student_id Int
+  team_id    Int
+
+  student student @relation(fields: [student_id], references: [id])
+  team    team    @relation(fields: [team_id], references: [id])
+
+  @@id([student_id, team_id])
 }

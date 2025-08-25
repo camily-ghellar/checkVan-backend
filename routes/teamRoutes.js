@@ -33,7 +33,11 @@ router.get('/getAllByDriver', authenticateToken, async (req, res) => {
     const teams = await prisma.team.findMany({
       where: { driver_id: driverId },
       include: {
-        trip: true,
+        trip: {
+          include: {
+            school: true,
+          },
+        },
         student_team: {
           include: {
             student: {
@@ -42,43 +46,52 @@ router.get('/getAllByDriver', authenticateToken, async (req, res) => {
                 name: true,
                 birth_date: true,
                 gender: true,
-                user: { select: { id: true, name: true } }
-              }
-            }
-          }
-        }
-      }
+                user: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+      },
     });
+
+    teams.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
+    
+    const formatTime = (date) => {
+      if (!date) return null;
+      const hours = String(date.getUTCHours()).padStart(2, '0');
+      const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+      return `${hours}:${minutes}`;
+    };
 
     const formatted = teams.map(team => ({
       id: team.id,
       name: team.name,
       trip: {
         id: team.trip.id,
-        starting_point: team.trip.starting_point,
-        ending_point: team.trip.ending_point,
-        departure_time: team.trip.departure_time,
-        arrival_time: team.trip.arrival_time
+        startingPoint: team.trip.starting_point,
+        schoolName: team.trip.school?.name, // Usa o nome da escola do include
+        departureTime: formatTime(team.trip.departure_time),
+        arrivalTime: formatTime(team.trip.arrival_time),
       },
       students: team.student_team.map(st => ({
         id: st.student.id,
         name: st.student.name,
-        birth_date: st.student.birth_date,
+        birthDate: st.student.birth_date,
         gender: st.student.gender,
         guardian: {
           id: st.student.user.id,
-          name: st.student.user.name
-        }
-      }))
+          name: st.student.user.name,
+        },
+      })),
     }));
 
     res.json({ teams: formatted });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Erro ao buscar turmas.', error: err.message });
   }
 });
-
 
 router.get('/getAll', authenticateToken, async (req, res) => {
   try {
@@ -145,7 +158,7 @@ router.get('/getAll', authenticateToken, async (req, res) => {
 });
 
 
-router.get('getTeam/:teamId', authenticateToken, async (req, res) => {
+router.get('/getTeam/:teamId', authenticateToken, async (req, res) => {
   const driverId = req.user.id;
   const teamId = Number(req.params.teamId);
 
@@ -232,7 +245,7 @@ router.get('/:teamId/students', authenticateToken, async (req, res) => {
 });
 
 
-router.put('update/:teamId', authenticateToken, async (req, res) => {
+router.put('/update/:teamId', authenticateToken, async (req, res) => {
   const driverId = req.user.id;
   const teamId = Number(req.params.teamId);
   const { name, trip_id } = req.body;
@@ -271,7 +284,7 @@ router.put('update/:teamId', authenticateToken, async (req, res) => {
 });
 
 
-router.delete('delete/:teamId', authenticateToken, async (req, res) => {
+router.delete('/delete/:teamId', authenticateToken, async (req, res) => {
   const driverId = req.user.id;
   const teamId = Number(req.params.teamId);
 
