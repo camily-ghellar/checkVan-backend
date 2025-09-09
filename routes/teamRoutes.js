@@ -1,30 +1,50 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import authenticateToken from '../middlewares/auth.js';
+import { addressToCoords } from '../services/geocodingService.js';
 
 const router = Router();
 const prisma = new PrismaClient();
 
+router.post("/create", authenticateToken, async (req, res) => {
+  if (req.user.role !== "driver") return res.status(403).json({ message: "Apenas motoristas." });
 
-router.post('/registration', authenticateToken, async (req, res) => {
-  const { name, trip_id } = req.body;
-  const driver_id = req.user.id;
+  const { name, school_id, departure_time, arrival_time, starting_point, starting_lat, starting_lon } = req.body;
+  if (!name || !school_id) return res.status(400).json({ message: "Campos obrigatórios." });
 
   try {
     const team = await prisma.team.create({
       data: {
         name,
-        driver_id,
-        trip_id
-      }
+        driver_id: req.user.id,
+        school_id: Number(school_id),
+        departure_time: departure_time ? new Date(departure_time) : null,
+        arrival_time: arrival_time ? new Date(arrival_time) : null,
+        starting_point,
+        starting_lat,
+        starting_lon,
+      },
     });
 
-    res.status(201).json({ message: 'Turma cadastrada com sucesso.', team });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao cadastrar turma.', error: error.message });
+    res.status(201).json({ message: "Turma criada.", team });
+  } catch (err) {
+    res.status(500).json({ message: "Erro ao criar turma.", error: err.message });
   }
 });
 
+router.post('/assignStudent', authenticateToken, async (req, res) => {
+  const { student_id, team_id } = req.body;
+
+  try {
+    await prisma.student_team.create({
+      data: { student_id, team_id }
+    });
+
+    res.json({ message: 'Estudante atribuído à turma com sucesso.' });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao atribuir estudante.', error: err.message });
+  }
+});
 
 router.get('/getAllByDriver', authenticateToken, async (req, res) => {
   const driverId = req.user.id;
@@ -33,7 +53,7 @@ router.get('/getAllByDriver', authenticateToken, async (req, res) => {
     const teams = await prisma.team.findMany({
       where: { driver_id: driverId },
       include: {
-        trip: true,
+        school: true,
         student_team: {
           include: {
             student: {
@@ -50,50 +70,37 @@ router.get('/getAllByDriver', authenticateToken, async (req, res) => {
       }
     });
 
-    const formatted = teams.map(team => ({
-      id: team.id,
-      name: team.name,
-      trip: {
-        id: team.trip.id,
-        starting_point: team.trip.starting_point,
-        ending_point: team.trip.ending_point,
-        departure_time: team.trip.departure_time,
-        arrival_time: team.trip.arrival_time
-      },
-      students: team.student_team.map(st => ({
-        id: st.student.id,
-        name: st.student.name,
-        birth_date: st.student.birth_date,
-        gender: st.student.gender,
-        guardian: {
-          id: st.student.user.id,
-          name: st.student.user.name
-        }
-      }))
-    }));
-
-    res.json({ teams: formatted });
+    res.json({ teams });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ message: 'Erro ao buscar turmas.', error: err.message });
   }
 });
 
-
-router.get('/getAll', authenticateToken, async (req, res) => {
+router.get("/getAll", authenticateToken, async (req, res) => {
   try {
     const teams = await prisma.team.findMany({
+      include: { driver: true, student_team: { include: { student: true } } },
+    });
+    res.json({ teams });
+  } catch (err) {
+    res.status(500).json({ message: "Erro ao listar turmas.", error: err.message });
+  }
+});
+
+router.get('/get/:id', authenticateToken, async (req, res) => {
+  const driverId = req.user.id;
+  const teamId = Number(req.params.teamId);
+
+  if (Number.isNaN(teamId)) {
+    return res.status(400).json({ message: 'ID inválido.' });
+  }
+
+  try {
+    const team = await prisma.team.findUnique({
+      where: { id: teamId },
       include: {
-        driver: { 
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true
-          }
-        },
-        trip: true, 
-        student_team: { 
+        school: true,
+        student_team: {
           include: {
             student: {
               select: {
@@ -109,64 +116,12 @@ router.get('/getAll', authenticateToken, async (req, res) => {
       }
     });
 
-    const formatted = teams.map(team => ({
-      id: team.id,
-      name: team.name,
-      driver: {
-        id: team.driver.id,
-        name: team.driver.name,
-        email: team.driver.email,
-        phone: team.driver.phone
-      },
-      trip: {
-        id: team.trip.id,
-        starting_point: team.trip.starting_point,
-        ending_point: team.trip.ending_point,
-        departure_time: team.trip.departure_time,
-        arrival_time: team.trip.arrival_time
-      },
-      students: team.student_team.map(st => ({
-        id: st.student.id,
-        name: st.student.name,
-        birth_date: st.student.birth_date,
-        gender: st.student.gender,
-        guardian: {
-          id: st.student.user.id,
-          name: st.student.user.name
-        }
-      }))
-    }));
-
-    res.json({ teams: formatted });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Erro ao buscar turmas.', error: err.message });
-  }
-});
-
-
-router.get('getTeam/:teamId', authenticateToken, async (req, res) => {
-  const driverId = req.user.id;
-  const teamId = Number(req.params.teamId);
-
-  if (Number.isNaN(teamId)) {
-    return res.status(400).json({ message: 'ID da turma inválido.' });
-  }
-
-  try {
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: {
-        trip: true
-      }
-    });
-
     if (!team) {
       return res.status(404).json({ message: 'Turma não encontrada.' });
     }
 
     if (team.driver_id !== driverId) {
-      return res.status(403).json({ message: 'Acesso negado à turma.' });
+      return res.status(403).json({ message: 'Acesso negado.' });
     }
 
     res.json({ team });
@@ -175,70 +130,13 @@ router.get('getTeam/:teamId', authenticateToken, async (req, res) => {
   }
 });
 
-
-router.get('/:teamId/students', authenticateToken, async (req, res) => {
+router.put('/update/:id', authenticateToken, async (req, res) => {
   const driverId = req.user.id;
   const teamId = Number(req.params.teamId);
+  const { name, departure_time, arrival_time, starting_point, school_id } = req.body;
 
   if (Number.isNaN(teamId)) {
-    return res.status(400).json({ message: 'ID da turma inválido.' });
-  }
-
-  try {
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      select: { driver_id: true }
-    });
-    if (!team || team.driver_id !== driverId) {
-      return res.status(403).json({ message: 'Acesso negado à turma.' });
-    }
-
-    const studentTeams = await prisma.student_team.findMany({
-      where: { team_id: teamId },
-      include: {
-        student: {
-          select: {
-            id: true,
-            name: true,
-            birth_date: true,
-            gender: true,
-            user: { 
-              select: {
-                id: true,
-                name: true
-              }
-            }
-          }
-        }
-      }
-    });
-
-    const students = studentTeams.map(st => ({
-      id: st.student.id,
-      name: st.student.name,
-      birth_date: st.student.birth_date,
-      gender: st.student.gender,
-      guardian: {
-        id: st.student.user.id,
-        name: st.student.user.name
-      }
-    }));
-
-    res.json({ students });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Erro ao buscar estudantes.', error: error.message });
-  }
-});
-
-
-router.put('update/:teamId', authenticateToken, async (req, res) => {
-  const driverId = req.user.id;
-  const teamId = Number(req.params.teamId);
-  const { name, trip_id } = req.body;
-
-  if (Number.isNaN(teamId)) {
-    return res.status(400).json({ message: 'ID da turma inválido.' });
+    return res.status(400).json({ message: 'ID inválido.' });
   }
 
   try {
@@ -252,31 +150,41 @@ router.put('update/:teamId', authenticateToken, async (req, res) => {
     }
 
     if (team.driver_id !== driverId) {
-      return res.status(403).json({ message: 'Acesso negado à turma.' });
+      return res.status(403).json({ message: 'Acesso negado.' });
+    }
+
+    let coords = null;
+    if (starting_point) {
+      coords = await addressToCoords(starting_point);
     }
 
     const updatedTeam = await prisma.team.update({
       where: { id: teamId },
       data: {
         ...(name && { name }),
-        ...(trip_id && { trip_id })
+        ...(departure_time && { departure_time: new Date(departure_time) }),
+        ...(arrival_time && { arrival_time: new Date(arrival_time) }),
+        ...(starting_point && { starting_point }),
+        ...(coords && {
+          starting_lat: coords.lat ? parseFloat(coords.lat) : null,
+          starting_lon: coords.lon ? parseFloat(coords.lon) : null
+        }),
+        ...(school_id && { school_id: Number(school_id) })
       }
     });
 
     res.json({ message: 'Turma atualizada com sucesso.', team: updatedTeam });
   } catch (error) {
-    console.error(error);
     res.status(500).json({ message: 'Erro ao atualizar turma.', error: error.message });
   }
 });
 
-
-router.delete('delete/:teamId', authenticateToken, async (req, res) => {
+router.delete('/delete/:id', authenticateToken, async (req, res) => {
   const driverId = req.user.id;
   const teamId = Number(req.params.teamId);
 
   if (Number.isNaN(teamId)) {
-    return res.status(400).json({ message: 'ID da turma inválido.' });
+    return res.status(400).json({ message: 'ID inválido.' });
   }
 
   try {
@@ -290,23 +198,19 @@ router.delete('delete/:teamId', authenticateToken, async (req, res) => {
     }
 
     if (team.driver_id !== driverId) {
-      return res.status(403).json({ message: 'Acesso negado à turma.' });
+      return res.status(403).json({ message: 'Acesso negado.' });
     }
 
-    await prisma.student_team.deleteMany({
-      where: { team_id: teamId }
-    });
-
-    await prisma.team.delete({
-      where: { id: teamId }
-    });
+    await prisma.student_team.deleteMany({ where: { team_id: teamId } });
+    await prisma.team.delete({ where: { id: teamId } });
 
     res.json({ message: 'Turma excluída com sucesso.' });
   } catch (error) {
-    console.error(error);
     res.status(500).json({ message: 'Erro ao excluir turma.', error: error.message });
   }
 });
 
-
 export default router;
+
+
+

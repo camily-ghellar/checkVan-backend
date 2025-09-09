@@ -7,6 +7,61 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model school {
+  id        Int       @id @default(autoincrement())
+  name      String    @db.VarChar(255)
+  address   String?   @db.VarChar(255)
+  latitude  Float?
+  longitude Float?
+
+  students  student[]
+  teams     team[]
+}
+
+model student {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(255)
+  birth_date  DateTime @db.Date
+  gender      String   @db.VarChar(255)
+  guardian_id Int
+  school_id   Int
+  address     String?  @db.VarChar(255)
+  latitude    Float?
+  longitude   Float?
+
+  user            user               @relation("guardian_students", fields: [guardian_id], references: [id])
+  school          school             @relation(fields: [school_id], references: [id])
+  student_team    student_team[]
+  presences       student_presence[]
+  van_assignments van_assignment[]  
+}
+
+model team {
+  id             Int           @id @default(autoincrement())
+  name           String        @db.VarChar(255)
+  departure_time DateTime?
+  arrival_time   DateTime?
+  starting_point String?       @db.VarChar(255)
+  starting_lat   Float?
+  starting_lon   Float?
+  school_id      Int
+  driver_id      Int
+
+  driver       user   @relation("driver_teams", fields: [driver_id], references: [id])
+  school       school @relation(fields: [school_id], references: [id])
+  student_team student_team[]
+}
+
+model student_team {
+  student_id Int
+  team_id    Int
+
+  student student @relation(fields: [student_id], references: [id])
+  team    team    @relation(fields: [team_id], references: [id])
+
+  @@id([student_id, team_id])
+}
+
 model user {
   id             Int       @id @default(autoincrement())
   email          String    @unique @db.VarChar(255)
@@ -19,66 +74,42 @@ model user {
   
   students       student[]        @relation("guardian_students") 
   teams          team[]           @relation("driver_teams")      
+  vans           van[]            @relation("driver_vans") 
 }
 
-model school {
-  id        Int       @id @default(autoincrement())
-  name      String    @db.VarChar(255)
-  address   String?   @db.VarChar(255)
-  latitude  Float?
-  longitude Float?
+model van {
+  id        Int    @id @default(autoincrement())
+  brand     String
+  model     String
+  year      Int
+  plate     String   @unique
+  capacity  Int
 
-  students  student[]
-  trips     trip[]
-}
-
-model student {
-  id             Int      @id @default(autoincrement())
-  name           String   @db.VarChar(255)
-  birth_date     DateTime @db.Date
-  gender         String   @db.VarChar(255)
-  guardian_id    Int
-  school_id      Int
-  address        String?  @db.VarChar(255)
-  latitude       Float?
-  longitude      Float?
-  is_going_today Boolean  @default(false)
-
-  user         user    @relation("guardian_students", fields: [guardian_id], references: [id])
-  school       school  @relation(fields: [school_id], references: [id])
-  student_team student_team[]
-}
-
-model trip {
-  id             Int       @id @default(autoincrement())
-  departure_time DateTime?
-  arrival_time   DateTime?
-  starting_point String    @db.VarChar(255)
-  starting_lat   Float?
-  starting_lon   Float?
-  school_id      Int
-
-  school school @relation(fields: [school_id], references: [id])
-  team   team[]
-}
-
-model team {
-  id       Int    @id @default(autoincrement())
   driver_id Int
-  trip_id  Int?
-  name     String @db.VarChar(255)
-
-  driver       user @relation("driver_teams", fields: [driver_id], references: [id])
-  trip         trip? @relation(fields: [trip_id], references: [id])
-  student_team student_team[]
+  driver    user   @relation("driver_vans", fields: [driver_id], references: [id], onDelete: Cascade)
+  assignments van_assignment[]
 }
 
-model student_team {
+model student_presence {
+  id         Int      @id @default(autoincrement())
   student_id Int
-  team_id    Int
+  date       DateTime
+  is_going   Boolean  @default(true)
 
   student student @relation(fields: [student_id], references: [id])
-  team    team    @relation(fields: [team_id], references: [id])
 
-  @@id([student_id, team_id])
+  @@unique([student_id, date])
+}
+
+model van_assignment {
+  id         Int      @id @default(autoincrement())
+  van_id     Int
+  student_id Int
+  date       DateTime
+  status     String   @db.VarChar(20) // "assigned" | "waiting"
+
+  van     van     @relation(fields: [van_id], references: [id])
+  student student @relation(fields: [student_id], references: [id])
+
+  @@unique([van_id, student_id, date])
 }
