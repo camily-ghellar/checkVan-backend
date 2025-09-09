@@ -18,9 +18,8 @@ app.use(express.json());
 
 app.use('/user', userRoutes);
 app.use('/student', studentRoutes);
-app.use('/trip', tripRoutes);
+app.use('/van', vanRoutes);
 app.use('/team', teamRoutes);
-app.use('/studentTeam', studentTeamRoutes);
 app.use("/geocoding", geocodingRoutes);
 app.use("/routeGenerator", routeGeneratorRoutes);
 app.use("/school", schoolRoutes);

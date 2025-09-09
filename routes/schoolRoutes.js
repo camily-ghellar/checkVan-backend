@@ -1,86 +1,83 @@
-import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
-import authenticateToken from '../middlewares/auth.js';
-import { addressToCoords } from '../services/geocodingService.js';
+import { Router } from "express";
+import { PrismaClient } from "@prisma/client";
+import authenticateToken from "../middlewares/auth.js";
 
 const router = Router();
 const prisma = new PrismaClient();
 
-router.post('/create', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'driver') {
-    return res.status(403).json({ message: 'Apenas motoristas podem criar escolas.' });
-  }
-
-  let { name, address } = req.body;
-  if (!name || !(address || location)) {
-    return res.status(400).json({ message: 'Nome e endereço são obrigatórios.' });
-  }
+router.post("/create", authenticateToken, async (req, res) => {
+  const { name, address, latitude, longitude } = req.body;
+  if (!name) return res.status(400).json({ message: "Nome obrigatório." });
 
   try {
-    const coords = await addressToCoords(address);
     const school = await prisma.school.create({
-      data: {
-        name,
-        address,
-        latitude: coords?.lat ? parseFloat(coords.lat) : null,
-        longitude: coords?.lon ? parseFloat(coords.lon) : null
-      }
+      data: { name, address, latitude, longitude },
     });
-    res.status(201).json({ message: 'Escola criada com sucesso.', school });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao criar escola.', error: error.message });
+
+    res.status(201).json({ message: "Escola criada.", school });
+  } catch (err) {
+    res.status(500).json({ message: "Erro ao criar escola.", error: err.message });
   }
 });
 
-router.get('/list', authenticateToken, async (req, res) => {
+router.get("/getAll", authenticateToken, async (req, res) => {
   try {
     const schools = await prisma.school.findMany();
-    res.json(schools);
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao buscar escolas.', error: error.message });
+    res.json({ schools });
+  } catch (err) {
+    res.status(500).json({ message: "Erro ao listar escolas.", error: err.message });
   }
 });
 
-router.put('/update/:id', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'driver') {
-    return res.status(403).json({ message: 'Apenas motoristas podem editar escolas.' });
-  }
-
-  const id = parseInt(req.params.id, 10);
-  let { name, address, location } = req.body;
-  address = address || location;
+router.get("/get/:id", authenticateToken, async (req, res) => {
+  const schoolId = parseInt(req.params.id, 10);
 
   try {
-    let updateData = {};
-    if (name) updateData.name = name;
-    if (address) {
-      updateData.address = address;
-      const coords = await addressToCoords(address);
-      updateData.latitude = coords?.lat ?? null;
-      updateData.longitude = coords?.lon ?? null;
-    }
-
-    const updated = await prisma.school.update({
-      where: { id },
-      data: updateData
+    const school = await prisma.school.findUnique({
+      where: { id: schoolId },
     });
-    res.json({ message: 'Escola atualizada com sucesso.', school: updated });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao atualizar escola.', error: error.message });
+
+    if (!school) return res.status(404).json({ message: "Escola não encontrada." });
+
+    res.json({ school });
+  } catch (err) {
+    res.status(500).json({ message: "Erro ao buscar escola.", error: err.message });
   }
 });
 
-router.delete('/delete/:id', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'driver') {
-    return res.status(403).json({ message: 'Apenas motoristas podem deletar escolas.' });
-  }
+router.put("/update/:id", authenticateToken, async (req, res) => {
+  const schoolId = parseInt(req.params.id, 10);
+  const { name, address, latitude, longitude } = req.body;
 
-  const id = parseInt(req.params.id, 10);
   try {
-    await prisma.school.delete({ where: { id } });
-    res.json({ message: 'Escola excluída com sucesso.' });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao excluir escola.', error: error.message });
+    const data = {};
+    if (name) data.name = name;
+    if (address) data.address = address;
+    if (latitude !== undefined) data.latitude = latitude;
+    if (longitude !== undefined) data.longitude = longitude;
+
+    const updatedSchool = await prisma.school.update({
+      where: { id: schoolId },
+      data,
+    });
+
+    res.json({ message: "Escola atualizada.", school: updatedSchool });
+  } catch (err) {
+    res.status(500).json({ message: "Erro ao atualizar escola.", error: err.message });
+  }
+});
+
+router.delete("/delete/:id", authenticateToken, async (req, res) => {
+  const schoolId = parseInt(req.params.id, 10);
+
+  try {
+    await prisma.school.delete({
+      where: { id: schoolId },
+    });
+
+    res.json({ message: "Escola deletada com sucesso." });
+  } catch (err) {
+    res.status(500).json({ message: "Erro ao deletar escola.", error: err.message });
   }
 });
 
