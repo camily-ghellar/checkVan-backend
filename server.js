@@ -2,13 +2,11 @@ import dotenv from 'dotenv';
 import express from 'express';
 import userRoutes from './routes/userRoutes.js';
 import studentRoutes from './routes/studentRoutes.js';
-import tripRoutes from './routes/tripRoutes.js';
 import teamRoutes from './routes/teamRoutes.js';
-import studentTeamRoutes from './routes/studentTeamRoutes.js';
 import geocodingRoutes from "./routes/geocodingRoutes.js";
 import routeGeneratorRoutes from './routes/routeGeneratorRoutes.js';
 import schoolRoutes from './routes/schoolRoutes.js';
-
+import vanRoutes from './routes/vanRoutes.js';
 
 dotenv.config();
 
