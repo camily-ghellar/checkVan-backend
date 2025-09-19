@@ -1,31 +1,33 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import authenticateToken from '../middlewares/auth.js';
+import { requireDriver } from "../middlewares/roles.js";
 
 const router = Router();
 const prisma = new PrismaClient();
 
-router.post("/create", authenticateToken, async (req, res) => {
-  if (req.user.role !== "driver") return res.status(403).json({ message: "Apenas motoristas." });
 
-  const { brand, model, year, plate, capacity } = req.body;
-  if (!brand || !model || !year || !plate || !capacity) {
+router.post("/create", authenticateToken, requireDriver, async (req, res) => {
+
+  const { nickname, plate, capacity } = req.body;
+  if (!nickname || !plate || !capacity) {
     return res.status(400).json({ message: "Todos os campos obrigatórios." });
   }
 
   try {
     const van = await prisma.van.create({
-      data: { brand, model, year, plate, capacity, driver_id: req.user.id },
+      data: { nickname, plate, capacity, driver_id: req.user.id },
     });
 
     res.status(201).json({ message: "Van cadastrada.", van });
   } catch (err) {
     res.status(500).json({ message: "Erro ao cadastrar van.", error: err.message });
   }
+
 });
 
-router.get('/getAllByDriver', authenticateToken, async (req, res) => {
-  if (req.user.role !== "driver") return res.status(403).json({ message: "Apenas motoristas." });
+
+router.get('/getAllByDriver', authenticateToken, requireDriver, async (req, res) => {
 
   try {
     const vans = await prisma.van.findMany({ where: { driver_id: req.user.id } });
@@ -35,7 +37,8 @@ router.get('/getAllByDriver', authenticateToken, async (req, res) => {
   }
 });
 
-router.get('/getAll', authenticateToken, async (req, res) => {
+
+router.get('/getAll', authenticateToken, requireDriver, async (req, res) => {
   try {
     const vans = await prisma.van.findMany({
       include: {
@@ -49,11 +52,13 @@ router.get('/getAll', authenticateToken, async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: 'Erro ao buscar vans.', error: error.message });
   }
+
 });
 
-router.get('get/:id', authenticateToken, async (req, res) => {
-  const driverId = req.user.id;
-  const vanId = Number(req.params.vanId);
+
+router.get('/get/:id', authenticateToken, requireDriver, async (req, res) => {
+
+  const vanId = Number(req.params.id);
 
   if (Number.isNaN(vanId)) {
     return res.status(400).json({ message: 'ID inválido.' });
@@ -69,20 +74,18 @@ router.get('get/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ message: 'Van não encontrada.' });
     }
 
-    if (van.driver_id !== driverId) {
-      return res.status(403).json({ message: 'Acesso negado.' });
-    }
-
     res.json({ van });
   } catch (error) {
     res.status(500).json({ message: 'Erro ao buscar van.', error: error.message });
   }
+
 });
 
-router.put('/update/:id', authenticateToken, async (req, res) => {
-  const driverId = req.user.id;
-  const vanId = Number(req.params.vanId);
-  const { brand, model, year, plate, capacity } = req.body;
+
+router.put('/update/:id', authenticateToken, requireDriver, async (req, res) => {
+
+  const vanId = Number(req.params.id);
+  const { nickname, plate, capacity } = req.body;
 
   if (Number.isNaN(vanId)) {
     return res.status(400).json({ message: 'ID inválido.' });
@@ -98,16 +101,10 @@ router.put('/update/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ message: 'Van não encontrada.' });
     }
 
-    if (van.driver_id !== driverId) {
-      return res.status(403).json({ message: 'Acesso negado.' });
-    }
-
     const updatedVan = await prisma.van.update({
       where: { id: vanId },
       data: {
-        ...(brand && { brand }),
-        ...(model && { model }),
-        ...(year && { year: Number(year) }),
+        ...(nickname && { nickname }),
         ...(plate && { plate }),
         ...(capacity && { capacity: Number(capacity) })
       }
@@ -117,11 +114,13 @@ router.put('/update/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: 'Erro ao atualizar van.', error: error.message });
   }
+
 });
 
-router.delete('/delete/:id', authenticateToken, async (req, res) => {
-  const driverId = req.user.id;
-  const vanId = Number(req.params.vanId);
+
+router.delete('/delete/:id', authenticateToken, requireDriver, async (req, res) => {
+
+  const vanId = Number(req.params.id);
 
   if (Number.isNaN(vanId)) {
     return res.status(400).json({ message: 'ID inválido.' });
@@ -135,10 +134,6 @@ router.delete('/delete/:id', authenticateToken, async (req, res) => {
 
     if (!van) {
       return res.status(404).json({ message: 'Van não encontrada.' });
-    }
-
-    if (van.driver_id !== driverId) {
-      return res.status(403).json({ message: 'Acesso negado.' });
     }
 
     await prisma.van.delete({
@@ -149,6 +144,7 @@ router.delete('/delete/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: 'Erro ao excluir van.', error: error.message });
   }
+
 });
 
 export default router;

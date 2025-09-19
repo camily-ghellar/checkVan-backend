@@ -14,8 +14,14 @@ model school {
   latitude  Float?
   longitude Float?
 
+  morning_limit     String?
+  morning_departure    String?
+  afternoon_limit   String?
+  afternoon_departure  String?
+
   students  student[]
   teams     team[]
+  
 }
 
 model student {
@@ -28,6 +34,9 @@ model student {
   address     String?  @db.VarChar(255)
   latitude    Float?
   longitude   Float?
+
+  shift_going  String   @db.VarChar(255)
+  shift_return String   @db.VarChar(255)
 
   user            user               @relation("guardian_students", fields: [guardian_id], references: [id])
   school          school             @relation(fields: [school_id], references: [id])
@@ -79,9 +88,7 @@ model user {
 
 model van {
   id        Int    @id @default(autoincrement())
-  brand     String
-  model     String
-  year      Int
+  nickname  String @db.VarChar(100) 
   plate     String   @unique
   capacity  Int
 

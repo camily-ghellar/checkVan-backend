@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import authenticateToken from '../middlewares/auth.js';
+import { requireDriver } from "../middlewares/roles.js";
 import { addressToCoords } from '../services/geocodingService.js';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-router.post("/create", authenticateToken, async (req, res) => {
-  if (req.user.role !== "driver") return res.status(403).json({ message: "Apenas motoristas." });
+router.post("/create", authenticateToken, requireDriver, async (req, res) => {
 
   const { name, school_id, departure_time, arrival_time, starting_point, starting_lat, starting_lon } = req.body;
   if (!name || !school_id) return res.status(400).json({ message: "Campos obrigatórios." });
@@ -32,7 +32,7 @@ router.post("/create", authenticateToken, async (req, res) => {
   }
 });
 
-router.post('/assignStudent', authenticateToken, async (req, res) => {
+router.post('/assignStudent', authenticateToken, requireDriver, async (req, res) => {
   const { student_id, team_id } = req.body;
 
   try {
@@ -46,7 +46,7 @@ router.post('/assignStudent', authenticateToken, async (req, res) => {
   }
 });
 
-router.get('/getAllByDriver', authenticateToken, async (req, res) => {
+router.get('/getAllByDriver', authenticateToken, requireDriver, async (req, res) => {
   const driverId = req.user.id;
 
   try {
@@ -76,7 +76,7 @@ router.get('/getAllByDriver', authenticateToken, async (req, res) => {
   }
 });
 
-router.get("/getAll", authenticateToken, async (req, res) => {
+router.get("/getAll", authenticateToken, requireDriver, async (req, res) => {
   try {
     const teams = await prisma.team.findMany({
       include: { driver: true, student_team: { include: { student: true } } },
@@ -87,9 +87,9 @@ router.get("/getAll", authenticateToken, async (req, res) => {
   }
 });
 
-router.get('/get/:id', authenticateToken, async (req, res) => {
+router.get('/get/:id', authenticateToken, requireDriver, async (req, res) => {
   const driverId = req.user.id;
-  const teamId = Number(req.params.teamId);
+  const teamId = Number(req.params.id);
 
   if (Number.isNaN(teamId)) {
     return res.status(400).json({ message: 'ID inválido.' });
@@ -120,19 +120,15 @@ router.get('/get/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ message: 'Turma não encontrada.' });
     }
 
-    if (team.driver_id !== driverId) {
-      return res.status(403).json({ message: 'Acesso negado.' });
-    }
-
     res.json({ team });
   } catch (error) {
     res.status(500).json({ message: 'Erro ao buscar turma.', error: error.message });
   }
 });
 
-router.put('/update/:id', authenticateToken, async (req, res) => {
+router.put('/update/:id', authenticateToken, requireDriver, async (req, res) => {
   const driverId = req.user.id;
-  const teamId = Number(req.params.teamId);
+  const teamId = Number(req.params.id);
   const { name, departure_time, arrival_time, starting_point, school_id } = req.body;
 
   if (Number.isNaN(teamId)) {
@@ -147,10 +143,6 @@ router.put('/update/:id', authenticateToken, async (req, res) => {
 
     if (!team) {
       return res.status(404).json({ message: 'Turma não encontrada.' });
-    }
-
-    if (team.driver_id !== driverId) {
-      return res.status(403).json({ message: 'Acesso negado.' });
     }
 
     let coords = null;
@@ -179,9 +171,9 @@ router.put('/update/:id', authenticateToken, async (req, res) => {
   }
 });
 
-router.delete('/delete/:id', authenticateToken, async (req, res) => {
+router.delete('/delete/:id', authenticateToken, requireDriver, async (req, res) => {
   const driverId = req.user.id;
-  const teamId = Number(req.params.teamId);
+  const teamId = Number(req.params.id);
 
   if (Number.isNaN(teamId)) {
     return res.status(400).json({ message: 'ID inválido.' });
@@ -197,10 +189,6 @@ router.delete('/delete/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ message: 'Turma não encontrada.' });
     }
 
-    if (team.driver_id !== driverId) {
-      return res.status(403).json({ message: 'Acesso negado.' });
-    }
-
     await prisma.student_team.deleteMany({ where: { team_id: teamId } });
     await prisma.team.delete({ where: { id: teamId } });
 
@@ -211,6 +199,3 @@ router.delete('/delete/:id', authenticateToken, async (req, res) => {
 });
 
 export default router;
-
-
-

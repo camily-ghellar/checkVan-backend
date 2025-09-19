@@ -1,43 +1,54 @@
 import fetch from "node-fetch";
 
-const NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org";
-const USER_AGENT = "checkvan (ghellarcamily@gmail.com)"; 
-let lastCall = 0; 
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
-async function rateLimit() {
-  const now = Date.now();
-  const wait = lastCall + 1000 - now; 
-  if (wait > 0) {
-    await new Promise(res => setTimeout(res, wait));
-  }
-  lastCall = Date.now();
+if (!GOOGLE_MAPS_API_KEY) {
+  throw new Error("Google Maps API Key não definida em .env");
 }
 
 export async function addressToCoords(address) {
-  await rateLimit();
-  const url = `${NOMINATIM_BASE_URL}/search?` +
-              `q=${encodeURIComponent(address)}&format=json&limit=1`;
+  if (!address) return null;
 
-  const response = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT }
-  });
-
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${GOOGLE_MAPS_API_KEY}`;
+  const response = await fetch(url);
   const data = await response.json();
-  if (data.length > 0) {
-    return { lat: data[0].lat, lon: data[0].lon };
+
+  if (data.status === "OK" && data.results.length > 0) {
+    const loc = data.results[0].geometry.location;
+    return { lat: loc.lat, lon: loc.lng };
   }
   return null;
 }
 
+
 export async function coordsToAddress(lat, lon) {
-  await rateLimit();
-  const url = `${NOMINATIM_BASE_URL}/reverse?` +
-              `lat=${lat}&lon=${lon}&format=json`;
+  if (!lat || !lon) return null;
 
-  const response = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT }
-  });
-
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lon}&key=${GOOGLE_MAPS_API_KEY}`;
+  const response = await fetch(url);
   const data = await response.json();
-  return data.display_name || null;
+
+  if (data.status === "OK" && data.results.length > 0) {
+    return data.results[0].formatted_address;
+  }
+
+  return null;
+}
+
+
+export async function generateRoute(start, waypoints = [], end) {
+  if (!start || !end) throw new Error("Start e end são obrigatórios.");
+
+  const waypointsStr = waypoints.map(w => `${w.lat},${w.lon}`).join("|");
+
+  const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${start.lat},${start.lon}&destination=${end.lat},${end.lon}&waypoints=optimize:true|${waypointsStr}&key=${GOOGLE_MAPS_API_KEY}`;
+
+  const response = await fetch(url);
+  const data = await response.json();
+
+  if (data.status === "OK") {
+    return data.routes[0]; 
+  }
+
+  throw new Error(`Erro ao gerar rota: ${data.status} - ${data.error_message || ""}`);
 }

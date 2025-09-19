@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { hashSync, compareSync } from 'bcryptjs';
 import { createTransport } from 'nodemailer';
 import { PrismaClient } from '@prisma/client';
-import authenticateToken from '../middlewares/auth.js';
+import authenticateToken  from '../middlewares/auth.js';
+import { requireRoles } from "../middlewares/roles.js";
 import jwt from 'jsonwebtoken';
 
 const { sign } = jwt;
@@ -10,7 +11,9 @@ const { sign } = jwt;
 const router = Router();
 const prisma = new PrismaClient();
 
+
 router.post('/create', async (req, res) => {
+
   const { name, phone, email, password, role, driver_license, birth_date } = req.body;
 
   if (!name || !email || !password || !role) {
@@ -44,9 +47,12 @@ router.post('/create', async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: 'Erro interno ao cadastrar usuário.', error: err.message });
   }
+
 });
 
+
 router.post('/login', async (req, res) => {
+
   const { email, password } = req.body;
 
   if (!email || !password) return res.status(400).json({ message: 'E-mail e senha são obrigatórios.' });
@@ -63,9 +69,12 @@ router.post('/login', async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: 'Erro interno ao tentar fazer login.', error: err.message });
   }
+
 });
 
-router.put('/update', authenticateToken, async (req, res) => {
+
+router.put('/update', authenticateToken, requireRoles, async (req, res) => {
+
   const { name, phone, email, password, driver_license, birth_date } = req.body;
   const userId = req.user.id;
 
@@ -87,9 +96,12 @@ router.put('/update', authenticateToken, async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: 'Erro ao atualizar informações.', error: err.message });
   }
+
 });
 
+
 router.post('/recoverPassword', async (req, res) => {
+
   const { email } = req.body;
 
   if (!email) return res.status(400).json({ message: 'E-mail é obrigatório.' });
@@ -117,7 +129,7 @@ router.post('/recoverPassword', async (req, res) => {
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: email,
-      subject: 'Recupere sua senha - Van Escolar',
+      subject: 'Recupere sua senha - CheckVan Van Escolar',
       text: `Sua senha provisória é: ${tempPassword}\n\nUse-a para acessar sua conta e troque-a em seguida.`,
     });
 
@@ -125,9 +137,12 @@ router.post('/recoverPassword', async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: 'Erro ao recuperar senha.', error: err.message });
   }
+
 });
 
-router.get('/getProfile', authenticateToken, async (req, res) => {
+
+router.get('/getProfile', authenticateToken, requireRoles, async (req, res) => {
+
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
@@ -148,29 +163,8 @@ router.get('/getProfile', authenticateToken, async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: 'Erro ao buscar dados do usuário.', error: err.message });
   }
+
 });
 
-router.get('/getStudents', authenticateToken, async (req, res) => {
-  try {
-    const students = await prisma.student.findMany({
-      where: { guardian_id: req.user.id },
-      select: {
-        id: true,
-        name: true,
-        birth_date: true,
-        gender: true,
-        guardian_id: true,
-      },
-    });
-
-    if (!students.length) {
-      return res.status(404).json({ message: 'Nenhum estudante encontrado para este usuário.' });
-    }
-
-    res.json({ students });
-  } catch (err) {
-    res.status(500).json({ message: 'Erro ao buscar dados dos estudantes.', error: err.message });
-  }
-});
 
 export default router;
