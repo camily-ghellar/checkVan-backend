@@ -19,16 +19,6 @@ export function requireGuardian(req, res, next) {
   next();
 }
 
-export function requireAdmin(req, res, next) {
-  if (!req.user) {
-    return res.status(401).json({ message: "Não autenticado." });
-  }
-  if (req.user.role !== "admin") {
-    return res.status(403).json({ message: "Acesso negado: apenas administradores." });
-  }
-  next();
-}
-
 export function requireRoles(...roles) {
   return (req, res, next) => {
     if (!req.user) {
