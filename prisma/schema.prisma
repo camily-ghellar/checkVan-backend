@@ -100,7 +100,7 @@ model van {
 model student_presence {
   id         Int      @id @default(autoincrement())
   student_id Int
-  date       DateTime
+  date       DateTime @db.Date
   is_going   Boolean  @default(true)
 
   student student @relation(fields: [student_id], references: [id])
@@ -113,7 +113,7 @@ model van_assignment {
   van_id     Int
   student_id Int
   date       DateTime
-  status     String   @db.VarChar(20) // "assigned" | "waiting"
+  status     String   @db.VarChar(20)
 
   van     van     @relation(fields: [van_id], references: [id])
   student student @relation(fields: [student_id], references: [id])
