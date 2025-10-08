@@ -7,12 +7,14 @@ import { addressToCoords } from '../services/geocodingService.js';
 const router = Router();
 const prisma = new PrismaClient();
 
-router.post("/create", authenticateToken, requireDriver, async (req, res) => {
 
-  const { name, school_id, departure_time, arrival_time, starting_point, starting_lat, starting_lon } = req.body;
+router.post("/create", authenticateToken, requireDriver, async (req, res) => {
+  const { name, school_id, departure_time, arrival_time, starting_point } = req.body;
   if (!name || !school_id) return res.status(400).json({ message: "Campos obrigatórios." });
 
   try {
+    const coords = starting_point ? await addressToCoords(starting_point) : null;
+
     const team = await prisma.team.create({
       data: {
         name,
@@ -21,8 +23,8 @@ router.post("/create", authenticateToken, requireDriver, async (req, res) => {
         departure_time: departure_time ? new Date(departure_time) : null,
         arrival_time: arrival_time ? new Date(arrival_time) : null,
         starting_point,
-        starting_lat,
-        starting_lon,
+        starting_lat: coords?.lat ?? null,
+        starting_lon: coords?.lon ?? null,
       },
     });
 
@@ -31,6 +33,7 @@ router.post("/create", authenticateToken, requireDriver, async (req, res) => {
     res.status(500).json({ message: "Erro ao criar turma.", error: err.message });
   }
 });
+
 
 router.post('/assignStudent', authenticateToken, requireDriver, async (req, res) => {
   const { student_id, team_id } = req.body;
@@ -126,50 +129,33 @@ router.get('/get/:id', authenticateToken, requireDriver, async (req, res) => {
   }
 });
 
-router.put('/update/:id', authenticateToken, requireDriver, async (req, res) => {
-  const driverId = req.user.id;
+
+router.put("/update/:id", authenticateToken, requireDriver, async (req, res) => {
   const teamId = Number(req.params.id);
   const { name, departure_time, arrival_time, starting_point, school_id } = req.body;
 
-  if (Number.isNaN(teamId)) {
-    return res.status(400).json({ message: 'ID inválido.' });
-  }
-
   try {
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      select: { driver_id: true }
-    });
+    const data = {
+      ...(name && { name }),
+      ...(departure_time && { departure_time: new Date(departure_time) }),
+      ...(arrival_time && { arrival_time: new Date(arrival_time) }),
+      ...(school_id && { school_id: Number(school_id) })
+    };
 
-    if (!team) {
-      return res.status(404).json({ message: 'Turma não encontrada.' });
-    }
-
-    let coords = null;
     if (starting_point) {
-      coords = await addressToCoords(starting_point);
+      const coords = await addressToCoords(starting_point);
+      data.starting_point = starting_point;
+      data.starting_lat = coords?.lat ?? null;
+      data.starting_lon = coords?.lon ?? null;
     }
 
-    const updatedTeam = await prisma.team.update({
-      where: { id: teamId },
-      data: {
-        ...(name && { name }),
-        ...(departure_time && { departure_time: new Date(departure_time) }),
-        ...(arrival_time && { arrival_time: new Date(arrival_time) }),
-        ...(starting_point && { starting_point }),
-        ...(coords && {
-          starting_lat: coords.lat ? parseFloat(coords.lat) : null,
-          starting_lon: coords.lon ? parseFloat(coords.lon) : null
-        }),
-        ...(school_id && { school_id: Number(school_id) })
-      }
-    });
-
+    const updatedTeam = await prisma.team.update({ where: { id: teamId }, data });
     res.json({ message: 'Turma atualizada com sucesso.', team: updatedTeam });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao atualizar turma.', error: error.message });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao atualizar turma.', error: err.message });
   }
 });
+
 
 router.delete('/delete/:id', authenticateToken, requireDriver, async (req, res) => {
   const driverId = req.user.id;

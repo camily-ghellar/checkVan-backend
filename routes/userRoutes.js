@@ -72,7 +72,7 @@ router.post('/login', async (req, res) => {
 });
 
 
-router.put('/update', authenticateToken, requireRoles, async (req, res) => {
+router.put('/update', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
 
   const { name, phone, email, password, driver_license, birth_date } = req.body;
   const userId = req.user.id;
@@ -140,7 +140,7 @@ router.post('/recoverPassword', async (req, res) => {
 });
 
 
-router.get('/getProfile', authenticateToken, requireRoles('driver', 'guardian'), async (req, res) => {
+router.get('/getProfile', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
 
   try {
     const user = await prisma.user.findUnique({

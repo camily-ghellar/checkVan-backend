@@ -8,9 +8,12 @@ const router = Router();
 const prisma = new PrismaClient();
 
 
-function toDateOnly(dateString) {
-  const d = new Date(dateString);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+function toDateOnlyUTC(date) {
+  const d = new Date(date);
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth();
+  const day = d.getUTCDate();
+  return new Date(Date.UTC(year, month, day));
 }
 
 
@@ -42,12 +45,10 @@ router.post('/create', authenticateToken, requireDriver, async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: 'Erro ao cadastrar estudante.', error: err.message });
   }
-
 });
 
 
 router.put('/update/:id', authenticateToken, requireGuardian, async (req, res) => {
-
   const { id } = req.params;
   const { name, address, school_id, birth_date, gender, shift_going, shift_return } = req.body;
 
@@ -62,29 +63,21 @@ router.put('/update/:id', authenticateToken, requireGuardian, async (req, res) =
     };
 
     if (address) {
-      data.address = address;
       const coords = await addressToCoords(address);
-      if (coords) {
-        data.latitude = coords.lat ?? null;
-        data.longitude = coords.lon ?? null;
-      }
+      data.address = address;
+      data.latitude = coords?.lat ?? null;
+      data.longitude = coords?.lon ?? null;
     }
 
-    const updated = await prisma.student.update({
-      where: { id: parseInt(id, 10) },
-      data,
-    });
-
-    res.json({ message: 'Estudante atualizado com sucesso.', student: updated});
-  } catch (error) {
-    res.status(400).json({ message: 'Erro ao atualizar estudante.', error: error.message });
+    const updated = await prisma.student.update({ where: { id: parseInt(id, 10) }, data });
+    res.json({ message: 'Estudante atualizado com sucesso.', student: updated });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao atualizar estudante.', error: err.message });
   }
-
 });
 
 
-router.put('/:id/presence', authenticateToken, requireRoles, async (req, res) => {
-
+router.put('/:id/presence', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
   const id = Number(req.params.id);
   const { date, is_going } = req.body;
 
@@ -94,60 +87,71 @@ router.put('/:id/presence', authenticateToken, requireRoles, async (req, res) =>
   const student = await prisma.student.findUnique({ where: { id } });
   if (!student) return res.status(404).json({ message: 'Estudante não encontrado.' });
 
+  if (req.user.role === 'guardian' && student.guardian_id !== req.user.id) {
+    return res.status(403).json({ message: 'Você não pode alterar presença de outro responsável.' });
+  }
+
   try {
+    const dateOnly = toDateOnlyUTC(date);
+
     const presence = await prisma.student_presence.upsert({
-      where: { student_id_date: { student_id: id, date: toDateOnly(date) } },
+      where: { student_id_date: { student_id: id, date: dateOnly } },
       update: { is_going },
-      create: { student_id: id, date: toDateOnly(date), is_going },
+      create: { student_id: id, date: dateOnly, is_going },
     });
+
 
     res.json({ 
       message: is_going ? `Presença confirmada para ${date}` : `Ausência marcada para ${date}`, 
-      presence 
+      presence: {
+      ...presence,
+      date: presence.date.toISOString().slice(0,10)
+      }
     });
   } catch (err) {
     res.status(500).json({ message: 'Erro ao atualizar presença.', error: err.message });
   }
-
 });
 
 
-router.get("/:id/presence/day", authenticateToken, requireRoles, async (req, res) => {
-
-  const { id } = req.params;  
+router.get("/:id/presence/day", authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
+  const { id } = req.params;
   const { date } = req.query;
 
   if (!date) return res.status(400).json({ message: "Parâmetro 'date' é obrigatório." });
 
   try {
+    const dateOnly = toDateOnlyUTC(String(date));
+
     const presence = await prisma.student_presence.findUnique({
-      where: { student_id_date: { student_id: parseInt(id, 10), date: toDateOnly(date) } },
+      where: { student_id_date: { student_id: parseInt(id, 10), date: dateOnly } },
     });
 
     if (!presence) {
-      return res.json({ student_id: parseInt(id, 10), date, is_going: true });
+      return res.json({ student_id: parseInt(id, 10), date: dateOnly.toISOString().slice(0,10), is_going: true });
     }
 
-    res.json(presence);
+    res.json({
+      ...presence,
+      date: presence.date.toISOString().slice(0,10),
+    });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
-
 });
 
 
-router.get("/:id/presences/month", authenticateToken, requireRoles, async (req, res) => {
-  
+router.get("/:id/presences/month", authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
   const { id } = req.params;
   const { month, year } = req.query;
 
   if (!month || !year) return res.status(400).json({ error: "Informe mês e ano no formato ?month=MM&year=YYYY" });
 
-  const monthInt = parseInt(month, 10) - 1; 
-  const yearInt = parseInt(year, 10);
+  const monthInt = parseInt(String(month), 10) - 1;
+  const yearInt = parseInt(String(year), 10);
 
-  const startDate = new Date(yearInt, monthInt, 1);
-  const endDate = new Date(yearInt, monthInt + 1, 0); 
+  const startDate = toDateOnlyUTC(`${yearInt}-${monthInt + 1}-01`);
+  const endDate   = toDateOnlyUTC(`${yearInt}-${monthInt + 1}-${new Date(yearInt, monthInt + 1, 0).getDate()}`);
 
   try {
     const absences = await prisma.student_presence.findMany({
@@ -163,16 +167,16 @@ router.get("/:id/presences/month", authenticateToken, requireRoles, async (req, 
       return acc;
     }, {});
 
-    const daysInMonth = endDate.getDate();
+    const daysInMonth = new Date(yearInt, monthInt + 1, 0).getDate();
     const result = [];
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const currentDate = new Date(yearInt, monthInt, day);
+      const currentDate = toDateOnlyUTC(`${yearInt}-${monthInt + 1}-${day}`);
       const isoDate = currentDate.toISOString().slice(0,10);
 
       result.push({
         date: isoDate,
-        is_going: absenceMap[isoDate] !== undefined ? absenceMap[isoDate] : true, 
+        is_going: absenceMap[isoDate] !== undefined ? absenceMap[isoDate] : true,
       });
     }
 
@@ -180,7 +184,6 @@ router.get("/:id/presences/month", authenticateToken, requireRoles, async (req, 
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
-
 });
 
 
@@ -199,7 +202,7 @@ router.delete('/delete/:id', authenticateToken, requireGuardian, async (req, res
 });
 
 
-router.get('/get/:id', authenticateToken, requireRoles, async (req, res) => {
+router.get('/get/:id', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
 
   const id = Number(req.params.id);
   if (Number.isNaN(id)) return res.status(400).json({ message: 'ID inválido.' });
@@ -216,7 +219,8 @@ router.get('/get/:id', authenticateToken, requireRoles, async (req, res) => {
 });
 
 
-router.get('/getAll', authenticateToken, requireRoles('driver', 'guardian'), async (req, res) => {
+router.get('/getAll', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
+
   try {
     const students = await prisma.student.findMany();
     res.json({ students });
