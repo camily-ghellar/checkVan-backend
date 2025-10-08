@@ -13,7 +13,6 @@ const prisma = new PrismaClient();
 
 
 router.post('/create', async (req, res) => {
-
   const { name, phone, email, password, role, driver_license, birth_date } = req.body;
 
   if (!name || !email || !password || !role) {
@@ -141,7 +140,7 @@ router.post('/recoverPassword', async (req, res) => {
 });
 
 
-router.get('/getProfile', authenticateToken, requireRoles, async (req, res) => {
+router.get('/getProfile', authenticateToken, requireRoles('driver', 'guardian'), async (req, res) => {
 
   try {
     const user = await prisma.user.findUnique({

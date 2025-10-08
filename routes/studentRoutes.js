@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import authenticateToken from '../middlewares/auth.js';
-import { requireGuardian, requireRoles} from "../middlewares/roles.js";
+import { requireDriver, requireGuardian, requireRoles} from "../middlewares/roles.js";
 import { addressToCoords } from '../services/geocodingService.js';
 
 const router = Router();
@@ -14,8 +14,7 @@ function toDateOnly(dateString) {
 }
 
 
-router.post('/create', authenticateToken, requireGuardian, async (req, res) => {
-
+router.post('/create', authenticateToken, requireDriver, async (req, res) => {
   const { name, birth_date, gender, school_id, address, shift_going, shift_return } = req.body;
 
   if (!['male','female'].includes(gender)) return res.status(400).json({ message: 'Gênero inválido.' });
@@ -217,10 +216,9 @@ router.get('/get/:id', authenticateToken, requireRoles, async (req, res) => {
 });
 
 
-router.get('/getAll', authenticateToken, requireRoles, async (req, res) => {
-
+router.get('/getAll', authenticateToken, requireRoles('driver', 'guardian'), async (req, res) => {
   try {
-    const students = await prisma.student.findMany({ where: { guardian_id: req.user.id } });
+    const students = await prisma.student.findMany();
     res.json({ students });
   } catch (err) {
     res.status(500).json({ message: 'Erro ao listar estudantes.', error: err.message });
