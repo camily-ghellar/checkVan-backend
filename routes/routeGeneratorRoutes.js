@@ -37,7 +37,7 @@ router.get("/generate/:teamId", authenticateToken, requireDriver, async (req, re
           return true;
         }
 
-        const status = presence.is_going;
+        const status = presence.status;
         return status === 'GOING' || status === 'BOTH';
       });
 
