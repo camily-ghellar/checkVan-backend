@@ -30,7 +30,16 @@ router.get("/generate/:teamId", authenticateToken, requireDriver, async (req, re
 
     const studentsGoing = team.student_team
       .map(st => st.student)
-      .filter(s => s.presences[0]?.is_going ?? true);
+      .filter(student => {
+        const presence = student.presences[0];
+        
+        if (!presence) {
+          return true;
+        }
+
+        const status = presence.is_going;
+        return status === 'GOING' || status === 'BOTH';
+      });
 
     const start = { lat: team.starting_lat, lon: team.starting_lon };
     const end = { lat: team.school.latitude, lon: team.school.longitude };
