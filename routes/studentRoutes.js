@@ -258,5 +258,60 @@ router.get('/getStudents', authenticateToken, requireGuardian, async (req, res) 
 
 });
 
+router.get('/presence-summary', authenticateToken, requireGuardian, async (req, res) => {
+  try {
+    const now = new Date();
+    let targetDate = new Date();
+
+    // A regra de negócio para definir se é hoje ou amanhã permanece a mesma.
+    // O corte de 18:00 no fuso de Blumenau (UTC-3) equivale a 21:00 em UTC.
+    if (now.getUTCHours() >= 21) {
+      targetDate.setUTCDate(targetDate.getUTCDate() + 1);
+    }
+    console.log("now", now);
+    console.log("targetDate", targetDate);
+    
+    const dateForQuery = toDateOnlyUTC(targetDate.toISOString());
+    console.log("targetDate.toISOString()", targetDate.toISOString());
+    console.log("dateForQuery", dateForQuery);
+
+    const students = await prisma.student.findMany({
+      where: { guardian_id: req.user.id },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (students.length === 0) {
+      return res.json([]); 
+    }
+
+    const studentIds = students.map(s => s.id);
+    const presencesFound = await prisma.student_presence.findMany({
+      where: {
+        student_id: { in: studentIds },
+        date: dateForQuery, 
+      },
+      select: {
+        student_id: true,
+      },
+    });
+
+    const confirmedStudentIds = new Set(presencesFound.map(p => p.student_id));
+
+    const result = students.map(student => ({
+      id: student.id,
+      name: student.name,
+      image_profile: null,
+      is_presence_confirmed: confirmedStudentIds.has(student.id),
+    }));
+
+    res.json(result);
+  } catch (err) {
+    console.error("Erro ao buscar resumo de presença:", err);
+    res.status(500).json({ message: 'Erro ao buscar resumo de presença.', error: err.message });
+  }
+});
 
 export default router;
