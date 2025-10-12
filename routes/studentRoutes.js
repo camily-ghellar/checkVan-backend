@@ -79,10 +79,12 @@ router.put('/update/:id', authenticateToken, requireGuardian, async (req, res) =
 
 router.put('/:id/presence', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
   const id = Number(req.params.id);
-  const { date, is_going } = req.body;
+  const { date, status } = req.body;
 
-  if (!date || typeof is_going !== 'boolean') 
-    return res.status(400).json({ message: 'Data e is_going são obrigatórios.' });
+  const validStatuses = ['BOTH', 'GOING', 'RETURNING', 'NONE'];
+  if (!date || !status || !validStatuses.includes(status)) {
+    return res.status(400).json({ message: 'Data e um status válido (BOTH, GOING, RETURNING, NONE) são obrigatórios.' });
+  }
 
   const student = await prisma.student.findUnique({ where: { id } });
   if (!student) return res.status(404).json({ message: 'Estudante não encontrado.' });
@@ -96,23 +98,21 @@ router.put('/:id/presence', authenticateToken, requireRoles("guardian", "driver"
 
     const presence = await prisma.student_presence.upsert({
       where: { student_id_date: { student_id: id, date: dateOnly } },
-      update: { is_going },
-      create: { student_id: id, date: dateOnly, is_going },
+      update: { status },
+      create: { student_id: id, date: dateOnly, status },
     });
 
-
-    res.json({ 
-      message: is_going ? `Presença confirmada para ${date}` : `Ausência marcada para ${date}`, 
+    res.json({
+      message: `Status de presença atualizado para ${date}`,
       presence: {
-      ...presence,
-      date: presence.date.toISOString().slice(0,10)
+        ...presence,
+        date: presence.date.toISOString().slice(0, 10)
       }
     });
   } catch (err) {
     res.status(500).json({ message: 'Erro ao atualizar presença.', error: err.message });
   }
 });
-
 
 router.get("/:id/presence/day", authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
   const { id } = req.params;
@@ -128,18 +128,21 @@ router.get("/:id/presence/day", authenticateToken, requireRoles("guardian", "dri
     });
 
     if (!presence) {
-      return res.json({ student_id: parseInt(id, 10), date: dateOnly.toISOString().slice(0,10), is_going: true });
+      return res.json({ 
+        student_id: parseInt(id, 10), 
+        date: dateOnly.toISOString().slice(0, 10), 
+        status: 'BOTH' 
+      });
     }
 
     res.json({
       ...presence,
-      date: presence.date.toISOString().slice(0,10),
+      date: presence.date.toISOString().slice(0, 10),
     });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
-
 
 router.get("/:id/presences/month", authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
   const { id } = req.params;
@@ -154,16 +157,16 @@ router.get("/:id/presences/month", authenticateToken, requireRoles("guardian", "
   const endDate   = toDateOnlyUTC(`${yearInt}-${monthInt + 1}-${new Date(yearInt, monthInt + 1, 0).getDate()}`);
 
   try {
-    const absences = await prisma.student_presence.findMany({
+    const presences = await prisma.student_presence.findMany({
       where: {
         student_id: parseInt(id, 10),
         date: { gte: startDate, lte: endDate },
       },
-      select: { date: true, is_going: true },
+      select: { date: true, status: true },
     });
 
-    const absenceMap = absences.reduce((acc, record) => {
-      acc[record.date.toISOString().slice(0,10)] = record.is_going;
+    const presenceMap = presences.reduce((acc, record) => {
+      acc[record.date.toISOString().slice(0, 10)] = record.status;
       return acc;
     }, {});
 
@@ -172,11 +175,11 @@ router.get("/:id/presences/month", authenticateToken, requireRoles("guardian", "
 
     for (let day = 1; day <= daysInMonth; day++) {
       const currentDate = toDateOnlyUTC(`${yearInt}-${monthInt + 1}-${day}`);
-      const isoDate = currentDate.toISOString().slice(0,10);
+      const isoDate = currentDate.toISOString().slice(0, 10);
 
       result.push({
         date: isoDate,
-        is_going: absenceMap[isoDate] !== undefined ? absenceMap[isoDate] : true,
+        status: presenceMap[isoDate] !== undefined ? presenceMap[isoDate] : 'BOTH',
       });
     }
 
@@ -185,7 +188,6 @@ router.get("/:id/presences/month", authenticateToken, requireRoles("guardian", "
     res.status(400).json({ error: error.message });
   }
 });
-
 
 router.delete('/delete/:id', authenticateToken, requireGuardian, async (req, res) => {
 
