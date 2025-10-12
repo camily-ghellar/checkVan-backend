@@ -52,3 +52,24 @@ export async function generateRoute(start, waypoints = [], end) {
 
   throw new Error(`Erro ao gerar rota: ${data.status} - ${data.error_message || ""}`);
 }
+
+export async function getAddressAutocomplete(input) {
+  if (!input) return [];
+
+  const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(input)}&types=address&language=pt_BR&components=country:br&key=${GOOGLE_MAPS_API_KEY}`;
+  
+  const response = await fetch(url);
+  const data = await response.json();
+
+  if (data.status === "OK") {
+    const retorno =  data.predictions.map(prediction => ({
+      description: prediction.description,
+      placeId: prediction.place_id
+    }));
+
+    console.log("retorno", retorno);
+    return retorno;
+  }
+
+  return [];
+}

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { addressToCoords, coordsToAddress } from "../services/geocodingService.js";
+import { addressToCoords, coordsToAddress, getAddressAutocomplete } from "../services/geocodingService.js";
 
 const router = Router();
 
@@ -22,6 +22,20 @@ router.get("/to-address", async (req, res) => {
 
     const address = await coordsToAddress(lat, lon);
     res.json({ address });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/autocomplete", async (req, res) => {
+  try {
+    const { input } = req.query;
+    if (!input) {
+      return res.status(400).json({ error: "Parâmetro de busca é obrigatório." });
+    }
+
+    const suggestions = await getAddressAutocomplete(input);
+    res.json(suggestions);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
