@@ -3,10 +3,19 @@ import { PrismaClient } from '@prisma/client';
 import authenticateToken from '../middlewares/auth.js';
 import { requireDriver, requireGuardian, requireRoles} from "../middlewares/roles.js";
 import { addressToCoords } from '../services/geocodingService.js';
+import multer from 'multer';
+import { v2 as cloudinary } from 'cloudinary'; 
 
 const router = Router();
 const prisma = new PrismaClient();
 
+cloudinary.config({ 
+  cloud_name: process.env.CLOUD_NAME, 
+  api_key: process.env.CLOUDINARY_API_KEY, 
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 function toDateOnlyUTC(date) {
   const d = new Date(date);
@@ -17,13 +26,27 @@ function toDateOnlyUTC(date) {
 }
 
 
-router.post('/create', authenticateToken, requireDriver, async (req, res) => {
+router.post('/create', authenticateToken, requireDriver, upload.single('image_profile'), async (req, res) => {
   const { name, birth_date, gender, school_id, address, shift_going, shift_return } = req.body;
 
   if (!['male','female'].includes(gender)) return res.status(400).json({ message: 'Gênero inválido.' });
   if (!school_id) return res.status(400).json({ message: 'school_id é obrigatório.' });
 
   try {
+    let imageUrl = null;
+
+    if (req.file) {
+      // O buffer do arquivo está em req.file.buffer
+      // Precisamos convertê-lo para base64 para o Cloudinary
+      const b64 = Buffer.from(req.file.buffer).toString("base64");
+      let dataURI = "data:" + req.file.mimetype + ";base64," + b64;
+      
+      const uploadResponse = await cloudinary.uploader.upload(dataURI, {
+        folder: "student_profiles",
+        resource_type: "auto"
+      });
+      imageUrl = uploadResponse.secure_url;
+    }
     const coords = address ? await addressToCoords(address) : null;
 
     const student = await prisma.student.create({
@@ -37,7 +60,8 @@ router.post('/create', authenticateToken, requireDriver, async (req, res) => {
         school_id: Number(school_id),
         address: address ?? null,
         latitude: coords?.lat ?? null,
-        longitude: coords?.lon ?? null
+        longitude: coords?.lon ?? null,
+        image_profile: imageUrl
       }
     });
 
@@ -268,18 +292,15 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
     if (now.getUTCHours() >= 21) {
       targetDate.setUTCDate(targetDate.getUTCDate() + 1);
     }
-    console.log("now", now);
-    console.log("targetDate", targetDate);
     
     const dateForQuery = toDateOnlyUTC(targetDate.toISOString());
-    console.log("targetDate.toISOString()", targetDate.toISOString());
-    console.log("dateForQuery", dateForQuery);
 
     const students = await prisma.student.findMany({
       where: { guardian_id: req.user.id },
       select: {
         id: true,
         name: true,
+        image_profile: true,
       },
     });
 
@@ -303,7 +324,7 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
     const result = students.map(student => ({
       id: student.id,
       name: student.name,
-      image_profile: null,
+      image_profile: student.image_profile,
       is_presence_confirmed: confirmedStudentIds.has(student.id),
     }));
 

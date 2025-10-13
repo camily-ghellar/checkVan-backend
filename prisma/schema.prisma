@@ -7,6 +7,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum PresenceStatus {
+  BOTH      // Ida e volta
+  GOING     // Somente ida
+  RETURNING // Somente volta
+  NONE      // Não utilizará o transporte
+}
+
 model school {
   id        Int       @id @default(autoincrement())
   name      String    @db.VarChar(255)
@@ -32,6 +39,7 @@ model student {
   guardian_id Int
   school_id   Int
   address     String?  @db.VarChar(255)
+  image_profile String?
   latitude    Float?
   longitude   Float?
 
@@ -101,7 +109,7 @@ model student_presence {
   id         Int      @id @default(autoincrement())
   student_id Int
   date       DateTime @db.Date
-  is_going   Boolean  @default(true)
+  status     PresenceStatus @default(BOTH)
 
   student student @relation(fields: [student_id], references: [id])
 
