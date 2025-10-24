@@ -23,7 +23,5 @@ app.use("/routeGenerator", routeGeneratorRoutes);
 app.use("/school", schoolRoutes);
 
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log("Servidor rodando na porta", PORT));
