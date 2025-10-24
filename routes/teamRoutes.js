@@ -9,11 +9,21 @@ const prisma = new PrismaClient();
 
 
 router.post("/create", authenticateToken, requireDriver, async (req, res) => {
-  const { name, school_id, departure_time, arrival_time, starting_point } = req.body;
-  if (!name || !school_id) return res.status(400).json({ message: "Campos obrigatórios." });
+  const { name, school_id, departure_time, arrival_time, starting_lat, starting_lon, plate, nickname, capacity } = req.body;
+
+  if (!name || !school_id) return res.status(400).json({ message: "Campos obrigatórios: name, school_id." });
 
   try {
-    const coords = starting_point ? await addressToCoords(starting_point) : null;
+    let van = null;
+
+    if (plate) {
+      van = await prisma.van.findUnique({ where: { plate } });
+      if (!van) {
+        van = await prisma.van.create({
+          data: { plate, nickname: nickname ?? '', capacity: capacity ?? 0, driver_id: req.user.id }
+        });
+      }
+    }
 
     const team = await prisma.team.create({
       data: {
@@ -22,13 +32,14 @@ router.post("/create", authenticateToken, requireDriver, async (req, res) => {
         school_id: Number(school_id),
         departure_time: departure_time ? new Date(departure_time) : null,
         arrival_time: arrival_time ? new Date(arrival_time) : null,
-        starting_point,
-        starting_lat: coords?.lat ?? null,
-        starting_lon: coords?.lon ?? null,
+        starting_lat: starting_lat ?? van?.latitude ?? null,
+        starting_lon: starting_lon ?? van?.longitude ?? null,
+        van_id: van?.id ?? null
       },
+      include: { van: true }
     });
 
-    res.status(201).json({ message: "Turma criada.", team });
+    res.status(201).json({ message: "Turma criada com sucesso.", team });
   } catch (err) {
     res.status(500).json({ message: "Erro ao criar turma.", error: err.message });
   }
