@@ -7,74 +7,68 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum PresenceStatus {
-  BOTH      // Ida e volta
-  GOING     // Somente ida
-  RETURNING // Somente volta
-  NONE      // Não utilizará o transporte
-}
-
 model school {
-  id        Int       @id @default(autoincrement())
-  name      String    @db.VarChar(255)
-  address   String?   @db.VarChar(255)
-  latitude  Float?
-  longitude Float?
-
-  morning_limit     String?
-  morning_departure    String?
-  afternoon_limit   String?
-  afternoon_departure  String?
-
-  students  student[]
-  teams     team[]
-  
+  id                  Int       @id @default(autoincrement())
+  name                String    @db.VarChar(255)
+  address             String?   @db.VarChar(255)
+  latitude            Float?
+  longitude           Float?
+  morning_limit       String?
+  morning_departure   String?
+  afternoon_limit     String?
+  afternoon_departure String?
+  students            student[]
+  teams               team[]
 }
 
 model student {
-  id          Int      @id @default(autoincrement())
-  name        String   @db.VarChar(255)
-  birth_date  DateTime @db.Date
-  gender      String   @db.VarChar(255)
-  guardian_id Int
-  school_id   Int
-  address     String?  @db.VarChar(255)
-  image_profile String?
-  latitude    Float?
-  longitude   Float?
-
-  shift_going  String   @db.VarChar(255)
-  shift_return String   @db.VarChar(255)
-
+  id              Int                @id @default(autoincrement())
+  name            String             @db.VarChar(255)
+  birth_date      DateTime           @db.Date
+  gender          String             @db.VarChar(255)
+  guardian_id     Int
+  school_id       Int
+  address         String?            @db.VarChar(255)
+  image_profile   String?
+  latitude        Float?
+  longitude       Float?
+  shift_going     String             @db.VarChar(255)
+  shift_return    String             @db.VarChar(255)
   user            user               @relation("guardian_students", fields: [guardian_id], references: [id])
   school          school             @relation(fields: [school_id], references: [id])
-  student_team    student_team[]
   presences       student_presence[]
-  van_assignments van_assignment[]  
+  student_team    student_team[]
+  van_assignments van_assignment[]
+  notifiedHome      Boolean   @default(false)
+  notifiedSchool    Boolean   @default(false)
+  notifiedBoarding  Boolean   @default(false)
 }
 
 model team {
-  id             Int           @id @default(autoincrement())
-  name           String        @db.VarChar(255)
+  id             Int                @id @default(autoincrement())
+  name           String             @db.VarChar(255)
   departure_time DateTime?
   arrival_time   DateTime?
-  starting_point String?       @db.VarChar(255)
   starting_lat   Float?
   starting_lon   Float?
   school_id      Int
   driver_id      Int
+  van_id         Int?               
+  assignments    van_assignment[]   @relation("team_assignments")
+  student_team   student_team[]
+  driver         user               @relation("driver_teams", fields: [driver_id], references: [id])
+  school         school             @relation(fields: [school_id], references: [id])
+  van            van?               @relation("van_teams", fields: [van_id], references: [id])
 
-  driver       user   @relation("driver_teams", fields: [driver_id], references: [id])
-  school       school @relation(fields: [school_id], references: [id])
-  student_team student_team[]
+  distance_total Float?
+  duration_total Int?
 }
 
 model student_team {
   student_id Int
   team_id    Int
-
-  student student @relation(fields: [student_id], references: [id])
-  team    team    @relation(fields: [team_id], references: [id])
+  student    student @relation(fields: [student_id], references: [id])
+  team       team    @relation(fields: [team_id], references: [id])
 
   @@id([student_id, team_id])
 }
@@ -88,30 +82,17 @@ model user {
   birth_date     DateTime? @db.Date
   role           String    @db.VarChar(20)
   driver_license String?   @db.VarChar(20)
-  
-  students       student[]        @relation("guardian_students") 
-  teams          team[]           @relation("driver_teams")      
-  vans           van[]            @relation("driver_vans") 
-}
-
-model van {
-  id        Int    @id @default(autoincrement())
-  nickname  String @db.VarChar(100) 
-  plate     String   @unique
-  capacity  Int
-
-  driver_id Int
-  driver    user   @relation("driver_vans", fields: [driver_id], references: [id], onDelete: Cascade)
-  assignments van_assignment[]
+  students       student[] @relation("guardian_students")
+  teams          team[]    @relation("driver_teams")
+  vans           van[]     @relation("driver_vans")
 }
 
 model student_presence {
-  id         Int      @id @default(autoincrement())
+  id         Int            @id @default(autoincrement())
   student_id Int
-  date       DateTime @db.Date
+  date       DateTime       @db.Date
   status     PresenceStatus @default(BOTH)
-
-  student student @relation(fields: [student_id], references: [id])
+  student    student        @relation(fields: [student_id], references: [id])
 
   @@unique([student_id, date])
 }
@@ -122,9 +103,28 @@ model van_assignment {
   student_id Int
   date       DateTime
   status     String   @db.VarChar(20)
-
-  van     van     @relation(fields: [van_id], references: [id])
-  student student @relation(fields: [student_id], references: [id])
-
-  @@unique([van_id, student_id, date])
+  student    student  @relation(fields: [student_id], references: [id])
+  van        van      @relation("van_assignments", fields: [van_id], references: [id])
+  team       team?    @relation("team_assignments", fields: [team_id], references: [id])
+  team_id    Int?     
 }
+
+
+enum PresenceStatus {
+  BOTH
+  GOING
+  RETURNING 
+  NONE
+}
+
+model van {
+  id          Int             @id @default(autoincrement())
+  plate       String          @unique
+  nickname    String
+  capacity    Int
+  driver_id   Int
+  driver      user            @relation("driver_vans", fields: [driver_id], references: [id])
+  teams       team[]          @relation("van_teams")        
+  assignments van_assignment[] @relation("van_assignments") 
+}
+

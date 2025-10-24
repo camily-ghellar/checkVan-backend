@@ -6,7 +6,7 @@ import teamRoutes from './routes/teamRoutes.js';
 import geocodingRoutes from "./routes/geocodingRoutes.js";
 import routeGeneratorRoutes from './routes/routeGeneratorRoutes.js';
 import schoolRoutes from './routes/schoolRoutes.js';
-import vanRoutes from './routes/vanRoutes.js';
+import notificationsRoutes from './routes/notificationsRoutes.js';
 
 dotenv.config();
 
@@ -16,14 +16,12 @@ app.use(express.json());
 
 app.use('/user', userRoutes);
 app.use('/student', studentRoutes);
-app.use('/van', vanRoutes);
+app.use('/notifications', notificationsRoutes);
 app.use('/team', teamRoutes);
 app.use("/geocoding", geocodingRoutes);
 app.use("/routeGenerator", routeGeneratorRoutes);
 app.use("/school", schoolRoutes);
 
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log("Servidor rodando na porta", PORT));

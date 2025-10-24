@@ -1,21 +1,13 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import authenticateToken from '../middlewares/auth.js';
-import { requireDriver, requireGuardian, requireRoles} from "../middlewares/roles.js";
+import { requireGuardian, requireRoles} from "../middlewares/roles.js";
 import { addressToCoords } from '../services/geocodingService.js';
-import multer from 'multer';
-import { v2 as cloudinary } from 'cloudinary'; 
+import { generateRoute } from '../services/geocodingService.js';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-cloudinary.config({ 
-  cloud_name: process.env.CLOUD_NAME, 
-  api_key: process.env.CLOUDINARY_API_KEY, 
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
-
-const upload = multer({ storage: multer.memoryStorage() });
 
 function toDateOnlyUTC(date) {
   const d = new Date(date);
@@ -26,27 +18,13 @@ function toDateOnlyUTC(date) {
 }
 
 
-router.post('/create', authenticateToken, requireDriver, upload.single('image_profile'), async (req, res) => {
+router.post('/create', authenticateToken, requireGuardian, async (req, res) => {
   const { name, birth_date, gender, school_id, address, shift_going, shift_return } = req.body;
 
   if (!['male','female'].includes(gender)) return res.status(400).json({ message: 'Gênero inválido.' });
   if (!school_id) return res.status(400).json({ message: 'school_id é obrigatório.' });
 
   try {
-    let imageUrl = null;
-
-    if (req.file) {
-      // O buffer do arquivo está em req.file.buffer
-      // Precisamos convertê-lo para base64 para o Cloudinary
-      const b64 = Buffer.from(req.file.buffer).toString("base64");
-      let dataURI = "data:" + req.file.mimetype + ";base64," + b64;
-      
-      const uploadResponse = await cloudinary.uploader.upload(dataURI, {
-        folder: "student_profiles",
-        resource_type: "auto"
-      });
-      imageUrl = uploadResponse.secure_url;
-    }
     const coords = address ? await addressToCoords(address) : null;
 
     const student = await prisma.student.create({
@@ -60,12 +38,54 @@ router.post('/create', authenticateToken, requireDriver, upload.single('image_pr
         school_id: Number(school_id),
         address: address ?? null,
         latitude: coords?.lat ?? null,
-        longitude: coords?.lon ?? null,
-        image_profile: imageUrl
+        longitude: coords?.lon ?? null
       }
     });
 
-    res.status(201).json({ message: 'Estudante cadastrado com sucesso.', student });
+    const teams = await prisma.team.findMany({
+      where: { school_id: Number(school_id) },
+      include: { van: true, student_team: { select: { student_id: true } }, school: true }
+    });
+
+    let bestTeam = null;
+    let bestDistance = Infinity;
+
+    for (const team of teams) {
+      const seatsTaken = team.student_team.length;
+      if (team.van && seatsTaken >= team.van.capacity) continue; //van cheia
+      if (!coords || !team.starting_lat || !team.starting_lon) continue;
+
+      const dist = Math.hypot(team.starting_lat - coords.lat, team.starting_lon - coords.lon);
+      if (dist < bestDistance) {
+        bestDistance = dist;
+        bestTeam = team;
+      }
+    }
+
+    if (bestTeam) {
+      await prisma.student_team.create({
+        data: { student_id: student.id, team_id: bestTeam.id }
+      });
+
+      const start = { lat: bestTeam.starting_lat, lon: bestTeam.starting_lon };
+      const end = { lat: bestTeam.school.latitude, lon: bestTeam.school.longitude };
+      const waypoints = [{ lat: student.latitude, lon: student.longitude }];
+
+      try {
+        const route = await generateRoute(start, waypoints, end);
+        const totalDistance = route.legs.reduce((acc, l) => acc + l.distance.value, 0);
+        const totalDuration = route.legs.reduce((acc, l) => acc + l.duration.value, 0);
+
+        await prisma.team.update({
+          where: { id: bestTeam.id },
+          data: { distance_total: totalDistance, duration_total: totalDuration }
+        });
+      } catch (err) {
+        console.warn("Erro ao gerar rota automática:", err.message);
+      }
+    }
+
+    res.status(201).json({ message: 'Estudante cadastrado com sucesso.', student, assigned_team: bestTeam?.id ?? null });
   } catch (err) {
     res.status(500).json({ message: 'Erro ao cadastrar estudante.', error: err.message });
   }
@@ -292,15 +312,18 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
     if (now.getUTCHours() >= 21) {
       targetDate.setUTCDate(targetDate.getUTCDate() + 1);
     }
+    console.log("now", now);
+    console.log("targetDate", targetDate);
     
     const dateForQuery = toDateOnlyUTC(targetDate.toISOString());
+    console.log("targetDate.toISOString()", targetDate.toISOString());
+    console.log("dateForQuery", dateForQuery);
 
     const students = await prisma.student.findMany({
       where: { guardian_id: req.user.id },
       select: {
         id: true,
         name: true,
-        image_profile: true,
       },
     });
 
@@ -324,7 +347,7 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
     const result = students.map(student => ({
       id: student.id,
       name: student.name,
-      image_profile: student.image_profile,
+      image_profile: null,
       is_presence_confirmed: confirmedStudentIds.has(student.id),
     }));
 
