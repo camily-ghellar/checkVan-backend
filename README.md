@@ -6,3 +6,10 @@ This image bellow represents data base schema:
 
 
 ![image](https://github.com/user-attachments/assets/ba524c16-e7f2-45fa-85bd-03828f1d85b5)
+
+
+Gerar prisma: 
+npx prisma generate
+
+Rodar backend:
+npm run dev

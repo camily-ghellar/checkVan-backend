@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import authenticateToken from '../middlewares/auth.js';
-import { requireDriver, requireGuardian, requireRoles} from "../middlewares/roles.js";
+import { requireGuardian, requireRoles} from "../middlewares/roles.js";
 import { addressToCoords } from '../services/geocodingService.js';
+import { generateRoute } from '../services/geocodingService.js';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -17,7 +18,7 @@ function toDateOnlyUTC(date) {
 }
 
 
-router.post('/create', authenticateToken, requireDriver, async (req, res) => {
+router.post('/create', authenticateToken, requireGuardian, async (req, res) => {
   const { name, birth_date, gender, school_id, address, shift_going, shift_return } = req.body;
 
   if (!['male','female'].includes(gender)) return res.status(400).json({ message: 'Gênero inválido.' });
@@ -41,7 +42,50 @@ router.post('/create', authenticateToken, requireDriver, async (req, res) => {
       }
     });
 
-    res.status(201).json({ message: 'Estudante cadastrado com sucesso.', student });
+    const teams = await prisma.team.findMany({
+      where: { school_id: Number(school_id) },
+      include: { van: true, student_team: { select: { student_id: true } }, school: true }
+    });
+
+    let bestTeam = null;
+    let bestDistance = Infinity;
+
+    for (const team of teams) {
+      const seatsTaken = team.student_team.length;
+      if (team.van && seatsTaken >= team.van.capacity) continue; //van cheia
+      if (!coords || !team.starting_lat || !team.starting_lon) continue;
+
+      const dist = Math.hypot(team.starting_lat - coords.lat, team.starting_lon - coords.lon);
+      if (dist < bestDistance) {
+        bestDistance = dist;
+        bestTeam = team;
+      }
+    }
+
+    if (bestTeam) {
+      await prisma.student_team.create({
+        data: { student_id: student.id, team_id: bestTeam.id }
+      });
+
+      const start = { lat: bestTeam.starting_lat, lon: bestTeam.starting_lon };
+      const end = { lat: bestTeam.school.latitude, lon: bestTeam.school.longitude };
+      const waypoints = [{ lat: student.latitude, lon: student.longitude }];
+
+      try {
+        const route = await generateRoute(start, waypoints, end);
+        const totalDistance = route.legs.reduce((acc, l) => acc + l.distance.value, 0);
+        const totalDuration = route.legs.reduce((acc, l) => acc + l.duration.value, 0);
+
+        await prisma.team.update({
+          where: { id: bestTeam.id },
+          data: { distance_total: totalDistance, duration_total: totalDuration }
+        });
+      } catch (err) {
+        console.warn("Erro ao gerar rota automática:", err.message);
+      }
+    }
+
+    res.status(201).json({ message: 'Estudante cadastrado com sucesso.', student, assigned_team: bestTeam?.id ?? null });
   } catch (err) {
     res.status(500).json({ message: 'Erro ao cadastrar estudante.', error: err.message });
   }
