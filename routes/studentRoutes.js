@@ -4,7 +4,9 @@ import authenticateToken from '../middlewares/auth.js';
 import { requireGuardian, requireRoles} from "../middlewares/roles.js";
 import { addressToCoords } from '../services/geocodingService.js';
 import { generateRoute } from '../services/geocodingService.js';
+import multer from 'multer';
 
+const upload = multer();
 const router = Router();
 const prisma = new PrismaClient();
 
@@ -20,6 +22,7 @@ function toDateOnlyUTC(date) {
 
 router.post('/create', authenticateToken, requireGuardian, async (req, res) => {
   const { name, birth_date, gender, school_id, address, shift_going, shift_return } = req.body;
+  console.log("re.body", req.body);
 
   if (!['male','female'].includes(gender)) return res.status(400).json({ message: 'Gênero inválido.' });
   if (!school_id) return res.status(400).json({ message: 'school_id é obrigatório.' });
@@ -357,5 +360,55 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
     res.status(500).json({ message: 'Erro ao buscar resumo de presença.', error: err.message });
   }
 });
+
+router.post('/student/:id/upload-image', authenticateToken, requireGuardian, upload.single('image_profile'), async (req, res) => {
+    const { id } = req.params;
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'Nenhum arquivo de imagem enviado.' });
+    }
+
+    try {
+      const uploadToCloudinary = () => {
+        return new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            {
+              folder: 'student_profiles', 
+              public_id: `student_${id}`, 
+              overwrite: true,
+            },
+            (error, result) => {
+              if (error) return reject(error);
+              if (!result) return reject(new Error('Falha no upload para Cloudinary.'));
+              resolve(result); 
+            }
+          );
+
+          uploadStream.end(req.file.buffer);
+        });
+      };
+
+      const uploadResult = await uploadToCloudinary();
+      
+      const imageUrl = uploadResult.secure_url;
+
+      const updatedStudent = await prisma.student.update({
+        where: { id: parseInt(id, 10) },
+        data: {
+          image_profile: imageUrl,
+        },
+      });
+
+      res.status(200).json({
+        message: 'Imagem enviada com sucesso.',
+        student: updatedStudent,
+      });
+
+    } catch (err) {
+      console.error('Erro no upload para Cloudinary:', err);
+      res.status(500).json({ message: 'Erro ao salvar a imagem.', error: err.message });
+    }
+  }
+);
 
 export default router;

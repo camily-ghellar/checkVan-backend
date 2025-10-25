@@ -37,7 +37,7 @@ router.post("/create", authenticateToken, requireDriver, async (req, res) => {
 });
 
 
-router.get("/getAll", authenticateToken, requireDriver, async (req, res) => {
+router.get("/getAll", authenticateToken, async (req, res) => {
   try {
     const schools = await prisma.school.findMany();
     res.json({ schools });
