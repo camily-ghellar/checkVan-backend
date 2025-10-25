@@ -328,6 +328,7 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
       select: {
         id: true,
         name: true,
+        image_profile: true,
       },
     });
 
@@ -351,7 +352,7 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
     const result = students.map(student => ({
       id: student.id,
       name: student.name,
-      image_profile: null,
+      image_profile: student.image_profile,
       is_presence_confirmed: confirmedStudentIds.has(student.id),
     }));
 
