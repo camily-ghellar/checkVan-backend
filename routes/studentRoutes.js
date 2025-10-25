@@ -5,6 +5,7 @@ import { requireGuardian, requireRoles} from "../middlewares/roles.js";
 import { addressToCoords } from '../services/geocodingService.js';
 import { generateRoute } from '../services/geocodingService.js';
 import multer from 'multer';
+import cloudinary from '../cloudinary.js'; 
 
 const upload = multer();
 const router = Router();
@@ -361,7 +362,7 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
   }
 });
 
-router.post('/student/:id/upload-image', authenticateToken, requireGuardian, upload.single('image_profile'), async (req, res) => {
+router.post('/:id/upload-image', authenticateToken, requireGuardian, upload.single('image_profile'), async (req, res) => {
     const { id } = req.params;
 
     if (!req.file) {
