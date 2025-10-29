@@ -7,6 +7,7 @@ import geocodingRoutes from "./routes/geocodingRoutes.js";
 import routeGeneratorRoutes from './routes/routeGeneratorRoutes.js';
 import schoolRoutes from './routes/schoolRoutes.js';
 import notificationsRoutes from './routes/notificationsRoutes.js';
+import tripRoutes from './routes/tripRoutes.js';
 
 dotenv.config();
 
@@ -21,6 +22,7 @@ app.use('/team', teamRoutes);
 app.use("/geocoding", geocodingRoutes);
 app.use("/routeGenerator", routeGeneratorRoutes);
 app.use("/school", schoolRoutes);
+app.use("/trip", tripRoutes);
 
 
 const PORT = process.env.PORT || 10000;

@@ -2,25 +2,24 @@ import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import authenticateToken from '../middlewares/auth.js';
 import { requireDriver } from "../middlewares/roles.js";
-import { addressToCoords } from '../services/geocodingService.js';
+import { recalculateTeamRoutes } from "../services/teamService.js";
 
 const router = Router();
 const prisma = new PrismaClient();
 
-
 router.post("/create", authenticateToken, requireDriver, async (req, res) => {
-  const { name, school_id, departure_time, arrival_time, starting_lat, starting_lon, plate, nickname, capacity } = req.body;
+  const { name, school_id, starting_lat, starting_lon, plate, nickname, capacity, code, shift } = req.body;
 
-  if (!name || !school_id) return res.status(400).json({ message: "Campos obrigatórios: name, school_id." });
+  if (!name || !school_id || !shift)
+    return res.status(400).json({ message: "Campos obrigatórios: name, school_id, shift." });
 
   try {
     let van = null;
-
     if (plate) {
       van = await prisma.van.findUnique({ where: { plate } });
       if (!van) {
         van = await prisma.van.create({
-          data: { plate, nickname: nickname ?? '', capacity: capacity ?? 0, driver_id: req.user.id }
+          data: { plate, nickname: nickname ?? "", capacity: capacity ?? 0, driver_id: req.user.id }
         });
       }
     }
@@ -28,37 +27,26 @@ router.post("/create", authenticateToken, requireDriver, async (req, res) => {
     const team = await prisma.team.create({
       data: {
         name,
+        code,
+        shift,
         driver_id: req.user.id,
         school_id: Number(school_id),
-        departure_time: departure_time ? new Date(departure_time) : null,
-        arrival_time: arrival_time ? new Date(arrival_time) : null,
-        starting_lat: starting_lat ?? van?.latitude ?? null,
-        starting_lon: starting_lon ?? van?.longitude ?? null,
+        starting_lat,
+        starting_lon,
         van_id: van?.id ?? null
       },
-      include: { van: true }
+      include: { van: true, school: true }
     });
 
-    res.status(201).json({ message: "Turma criada com sucesso.", team });
+    const updatedTeam = await recalculateTeamRoutes(team.id, shift, starting_lat, starting_lon);
+
+    res.status(201).json({ message: "Turma criada com sucesso.", team: updatedTeam });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Erro ao criar turma.", error: err.message });
   }
 });
 
-
-router.post('/assignStudent', authenticateToken, requireDriver, async (req, res) => {
-  const { student_id, team_id } = req.body;
-
-  try {
-    await prisma.student_team.create({
-      data: { student_id, team_id }
-    });
-
-    res.json({ message: 'Estudante atribuído à turma com sucesso.' });
-  } catch (err) {
-    res.status(500).json({ message: 'Erro ao atribuir estudante.', error: err.message });
-  }
-});
 
 router.get('/getAllByDriver', authenticateToken, requireDriver, async (req, res) => {
   const driverId = req.user.id;
@@ -81,7 +69,8 @@ router.get('/getAllByDriver', authenticateToken, requireDriver, async (req, res)
             }
           }
         }
-      }
+      },
+      orderBy: { departure_time: 'asc' }
     });
 
     res.json({ teams });
@@ -90,10 +79,16 @@ router.get('/getAllByDriver', authenticateToken, requireDriver, async (req, res)
   }
 });
 
+
 router.get("/getAll", authenticateToken, requireDriver, async (req, res) => {
   try {
     const teams = await prisma.team.findMany({
-      include: { driver: true, student_team: { include: { student: true } } },
+      include: {
+        driver: true,
+        student_team: { include: { student: true } },
+        school: true
+      },
+      orderBy: { id: 'desc' }
     });
     res.json({ teams });
   } catch (err) {
@@ -101,13 +96,11 @@ router.get("/getAll", authenticateToken, requireDriver, async (req, res) => {
   }
 });
 
-router.get('/get/:id', authenticateToken, requireDriver, async (req, res) => {
-  const driverId = req.user.id;
-  const teamId = Number(req.params.id);
 
-  if (Number.isNaN(teamId)) {
+router.get('/get/:id', authenticateToken, requireDriver, async (req, res) => {
+  const teamId = Number(req.params.id);
+  if (Number.isNaN(teamId))
     return res.status(400).json({ message: 'ID inválido.' });
-  }
 
   try {
     const team = await prisma.team.findUnique({
@@ -130,10 +123,7 @@ router.get('/get/:id', authenticateToken, requireDriver, async (req, res) => {
       }
     });
 
-    if (!team) {
-      return res.status(404).json({ message: 'Turma não encontrada.' });
-    }
-
+    if (!team) return res.status(404).json({ message: 'Turma não encontrada.' });
     res.json({ team });
   } catch (error) {
     res.status(500).json({ message: 'Erro ao buscar turma.', error: error.message });
@@ -143,29 +133,53 @@ router.get('/get/:id', authenticateToken, requireDriver, async (req, res) => {
 
 router.put("/update/:id", authenticateToken, requireDriver, async (req, res) => {
   const teamId = Number(req.params.id);
-  const { name, departure_time, arrival_time, starting_point, school_id } = req.body;
+  const { name, code, shift, school_id, starting_lat, starting_lon } = req.body;
 
   try {
     const data = {
       ...(name && { name }),
-      ...(departure_time && { departure_time: new Date(departure_time) }),
-      ...(arrival_time && { arrival_time: new Date(arrival_time) }),
-      ...(school_id && { school_id: Number(school_id) })
+      ...(code && { code }),
+      ...(shift && { shift }),
+      ...(school_id && { school_id }),
+      ...(starting_lat && { starting_lat }),
+      ...(starting_lon && { starting_lon })
     };
 
-    if (starting_point) {
-      const coords = await addressToCoords(starting_point);
-      data.starting_point = starting_point;
-      data.starting_lat = coords?.lat ?? null;
-      data.starting_lon = coords?.lon ?? null;
-    }
+    await prisma.team.update({ where: { id: teamId }, data });
 
-    const updatedTeam = await prisma.team.update({ where: { id: teamId }, data });
-    res.json({ message: 'Turma atualizada com sucesso.', team: updatedTeam });
+    const updatedTeam = await recalculateTeamRoutes(teamId, shift, starting_lat, starting_lon);
+
+    res.json({ message: "Turma atualizada com sucesso.", team: updatedTeam });
   } catch (err) {
-    res.status(500).json({ message: 'Erro ao atualizar turma.', error: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Erro ao atualizar turma.", error: err.message });
   }
 });
+
+
+router.post('/assignStudent', authenticateToken, requireDriver, async (req, res) => {
+  const { student_id, team_id } = req.body;
+
+  try {
+    await prisma.student_team.create({
+      data: { student_id, team_id }
+    });
+
+    const updatedTeam = await recalculateTeamRoutes(
+      team_id,
+      undefined, 
+      undefined, 
+      undefined  
+    );
+    res.json({ 
+      message: 'Estudante atribuído à turma com sucesso.',
+      team: updatedTeam
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao atribuir estudante.', error: err.message });
+  }
+});
+
 
 
 router.delete('/delete/:id', authenticateToken, requireDriver, async (req, res) => {
@@ -194,5 +208,39 @@ router.delete('/delete/:id', authenticateToken, requireDriver, async (req, res) 
     res.status(500).json({ message: 'Erro ao excluir turma.', error: error.message });
   }
 });
+
+
+function generateCode() {
+  const letras = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const numeros = '0123456789';
+
+  let codigo = '';
+  for (let i = 0; i < 3; i++) {
+    codigo += letras.charAt(Math.floor(Math.random() * letras.length));
+  }
+  for (let i = 0; i < 3; i++) {
+    codigo += numeros.charAt(Math.floor(Math.random() * numeros.length));
+  }
+  return codigo;
+}
+
+
+router.get('/generateCode', authenticateToken, requireDriver, async (req, res) => {
+  try {
+    let codigo;
+    let existente;
+
+    do {
+      codigo = generateCode();
+      existente = await prisma.team.findUnique({ where: { code: codigo } });
+    } while (existente);
+
+    res.status(200).json({ code: codigo });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erro ao gerar código da turma.', error: err.message });
+  }
+});
+
 
 export default router;
