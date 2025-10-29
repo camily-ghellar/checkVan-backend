@@ -45,23 +45,31 @@ model student {
 }
 
 model team {
-  id             Int                @id @default(autoincrement())
-  name           String             @db.VarChar(255)
-  departure_time DateTime?
-  arrival_time   DateTime?
-  starting_lat   Float?
-  starting_lon   Float?
-  school_id      Int
-  driver_id      Int
-  van_id         Int?               
-  assignments    van_assignment[]   @relation("team_assignments")
-  student_team   student_team[]
-  driver         user               @relation("driver_teams", fields: [driver_id], references: [id])
-  school         school             @relation(fields: [school_id], references: [id])
-  van            van?               @relation("van_teams", fields: [van_id], references: [id])
+  id                    Int      @id @default(autoincrement())
+  name                  String   @db.VarChar(255)
+  code                  String   @db.VarChar(6)
+  shift                 String   @db.VarChar(20)
+  school_id             Int
+  driver_id             Int
+  van_id                Int?
+  starting_lat          Float
+  starting_lon          Float
+  
+  departure_time_going  DateTime?
+  arrival_time_going    DateTime?
+  duration_going        Int?
 
-  distance_total Float?
-  duration_total Int?
+  departure_time_return DateTime?
+  arrival_time_return   DateTime?
+  duration_return       Int?
+
+  distance_total        Float?
+  
+  driver         user     @relation("driver_teams", fields: [driver_id], references: [id])
+  school         school   @relation(fields: [school_id], references: [id])
+  van            van?     @relation("van_teams", fields: [van_id], references: [id])
+  student_team   student_team[]
+  assignments    van_assignment[]   @relation("team_assignments")
 }
 
 model student_team {
