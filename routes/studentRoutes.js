@@ -286,13 +286,6 @@ router.get('/getStudents', authenticateToken, requireGuardian, async (req, res) 
   try {
     const students = await prisma.student.findMany({
       where: { guardian_id: req.user.id },
-      select: {
-        id: true,
-        name: true,
-        birth_date: true,
-        gender: true,
-        guardian_id: true,
-      },
     });
 
     if (!students.length) {
@@ -412,5 +405,47 @@ router.post('/:id/upload-image', authenticateToken, requireGuardian, upload.sing
     }
   }
 );
+
+router.get('/search', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
+  const { name } = req.query;
+  const { role, id: userId } = req.user; 
+
+  if (!name || typeof name !== 'string') {
+    try {
+      let students = [];
+      if (role === 'guardian') {
+        students = await prisma.student.findMany({
+          where: { guardian_id: userId },
+        });
+      } else if (role === 'driver') {
+        students = await prisma.student.findMany();
+      }
+      return res.json({ students });
+    } catch (err) {
+       return res.status(500).json({ message: 'Erro ao listar estudantes.', error: err.message });
+    }
+  }
+
+  try {
+    const whereClause = {
+      name: {
+        contains: name,
+        mode: 'insensitive', 
+      }
+    };
+
+    if (role === 'guardian') {
+      whereClause.guardian_id = userId;
+    }
+
+    const students = await prisma.student.findMany({
+      where: whereClause,
+    });
+
+    res.json({ students });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao buscar estudantes.', error: err.message });
+  }
+});
 
 export default router;
