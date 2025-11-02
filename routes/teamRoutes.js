@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import authenticateToken from '../middlewares/auth.js';
 import { requireDriver } from "../middlewares/roles.js";
 import { recalculateTeamRoutes } from "../services/teamService.js";
-import { addressToCoords } from '../services/geocodingService.js'
+import { addressToCoords, coordsToAddress } from '../services/geocodingService.js'
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -65,7 +65,22 @@ router.get('/getAllByDriver', authenticateToken, requireDriver, async (req, res)
       orderBy: { departure_time_going: 'asc' }
     });
 
-    res.json({ teams });
+    const teamsWithAddress = await Promise.all(
+      teams.map(async (team) => {
+        if (!team.address && team.starting_lat && team.starting_lon) {
+          try {
+            const foundAddress = await coordsToAddress(team.starting_lat, team.starting_lon);
+            
+            return { ...team, address: foundAddress };
+          } catch (geoErr) {
+            console.error(`Falha no geocoding reverso para a turma ${team.id}:`, geoErr.message);
+            return { ...team, address: "Endereço não encontrado" };
+          }
+        }
+        return team;
+      })
+    );
+    res.json({ teams: teamsWithAddress });
   } catch (err) {
     res.status(500).json({ message: 'Erro ao buscar turmas.', error: err.message });
   }
@@ -131,15 +146,30 @@ router.put("/update/:id", authenticateToken, requireDriver, async (req, res) => 
     const data = {
       ...(name && { name }),
       ...(shift && { shift }),
-      ...(school_id && { school_id: Number(school_id) }),
-      ...('van_id' in req.body && { van_id: van_id ? Number(van_id) : null })
     };
+
+    if (school_id) {
+      data.school = {
+        connect: { id: Number(school_id) }
+      };
+    }
+
+    if ('van_id' in req.body) {
+      if (van_id) {
+        data.van = {
+          connect: { id: Number(van_id) }
+        };
+      } else {
+        data.van = {
+          disconnect: true
+        };
+      }
+    }
 
     let newCoords = {};
 
     if (address) {
       const coords = await addressToCoords(address);
-      data.address = address;
       data.starting_lat = coords?.lat ?? null;
       data.starting_lon = coords?.lon ?? null;
       newCoords = { lat: coords?.lat, lon: coords?.lon };
