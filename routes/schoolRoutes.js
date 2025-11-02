@@ -97,5 +97,32 @@ router.delete("/delete/:id", authenticateToken, requireDriver, async (req, res) 
   }
 });
 
+router.get('/search', authenticateToken, async (req, res) => {
+  const { name } = req.query;
+
+  if (!name || typeof name !== 'string' || name.trim() === '') {
+    try {
+      const schools = await prisma.school.findMany();
+      return res.json({ schools });
+    } catch (err) {
+      return res.status(500).json({ message: "Erro ao listar escolas.", error: err.message });
+    }
+  }
+
+  try {
+    const schools = await prisma.school.findMany({
+      where: {
+        name: {
+          contains: name,
+          mode: 'insensitive', 
+        }
+      },
+    });
+    res.json({ schools });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao buscar escolas.', error: err.message });
+  }
+});
+
 
 export default router;
