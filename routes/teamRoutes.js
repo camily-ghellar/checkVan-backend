@@ -3,42 +3,35 @@ import { PrismaClient } from '@prisma/client';
 import authenticateToken from '../middlewares/auth.js';
 import { requireDriver } from "../middlewares/roles.js";
 import { recalculateTeamRoutes } from "../services/teamService.js";
+import { addressToCoords } from '../services/geocodingService.js'
 
 const router = Router();
 const prisma = new PrismaClient();
 
 router.post("/create", authenticateToken, requireDriver, async (req, res) => {
-  const { name, school_id, starting_lat, starting_lon, plate, nickname, capacity, code, shift } = req.body;
+  const { name, school_id, address, van_id, code, shift } = req.body;
 
   if (!name || !school_id || !shift)
     return res.status(400).json({ message: "Campos obrigatórios: name, school_id, shift." });
 
+  // TODO - remover code do banco de dados
+  const coords = address ? await addressToCoords(address) : null;
   try {
-    let van = null;
-    if (plate) {
-      van = await prisma.van.findUnique({ where: { plate } });
-      if (!van) {
-        van = await prisma.van.create({
-          data: { plate, nickname: nickname ?? "", capacity: capacity ?? 0, driver_id: req.user.id }
-        });
-      }
-    }
-
     const team = await prisma.team.create({
       data: {
         name,
-        code,
+        code: "",
         shift,
         driver_id: req.user.id,
         school_id: Number(school_id),
-        starting_lat,
-        starting_lon,
-        van_id: van?.id ?? null
+        starting_lat: coords?.lat ?? null,
+        starting_lon: coords?.lon ?? null, 
+        van_id: van_id ? Number(van_id) : null 
       },
       include: { van: true, school: true }
     });
 
-    const updatedTeam = await recalculateTeamRoutes(team.id, shift, starting_lat, starting_lon);
+    const updatedTeam = await recalculateTeamRoutes(team.id, shift, coords?.lat, coords?.lon);
 
     res.status(201).json({ message: "Turma criada com sucesso.", team: updatedTeam });
   } catch (err) {
@@ -46,7 +39,6 @@ router.post("/create", authenticateToken, requireDriver, async (req, res) => {
     res.status(500).json({ message: "Erro ao criar turma.", error: err.message });
   }
 });
-
 
 router.get('/getAllByDriver', authenticateToken, requireDriver, async (req, res) => {
   const driverId = req.user.id;
@@ -70,7 +62,7 @@ router.get('/getAllByDriver', authenticateToken, requireDriver, async (req, res)
           }
         }
       },
-      orderBy: { departure_time: 'asc' }
+      orderBy: { departure_time_going: 'asc' }
     });
 
     res.json({ teams });
@@ -133,21 +125,36 @@ router.get('/get/:id', authenticateToken, requireDriver, async (req, res) => {
 
 router.put("/update/:id", authenticateToken, requireDriver, async (req, res) => {
   const teamId = Number(req.params.id);
-  const { name, code, shift, school_id, starting_lat, starting_lon } = req.body;
+  const { name, shift, school_id, address, van_id } = req.body;
 
   try {
     const data = {
       ...(name && { name }),
-      ...(code && { code }),
       ...(shift && { shift }),
-      ...(school_id && { school_id }),
-      ...(starting_lat && { starting_lat }),
-      ...(starting_lon && { starting_lon })
+      ...(school_id && { school_id: Number(school_id) }),
+      ...('van_id' in req.body && { van_id: van_id ? Number(van_id) : null })
     };
+
+    let newCoords = {};
+
+    if (address) {
+      const coords = await addressToCoords(address);
+      data.address = address;
+      data.starting_lat = coords?.lat ?? null;
+      data.starting_lon = coords?.lon ?? null;
+      newCoords = { lat: coords?.lat, lon: coords?.lon };
+    }
 
     await prisma.team.update({ where: { id: teamId }, data });
 
-    const updatedTeam = await recalculateTeamRoutes(teamId, shift, starting_lat, starting_lon);
+    const teamData = await prisma.team.findUnique({ where: { id: teamId } });
+
+    const updatedTeam = await recalculateTeamRoutes(
+      teamId, 
+      teamData.shift, 
+      teamData.starting_lat, 
+      teamData.starting_lon
+    );
 
     res.json({ message: "Turma atualizada com sucesso.", team: updatedTeam });
   } catch (err) {
@@ -155,7 +162,6 @@ router.put("/update/:id", authenticateToken, requireDriver, async (req, res) => 
     res.status(500).json({ message: "Erro ao atualizar turma.", error: err.message });
   }
 });
-
 
 router.post('/assignStudent', authenticateToken, requireDriver, async (req, res) => {
   const { student_id, team_id } = req.body;
