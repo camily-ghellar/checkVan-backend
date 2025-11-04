@@ -9,18 +9,16 @@ const router = Router();
 const prisma = new PrismaClient();
 
 router.post("/create", authenticateToken, requireDriver, async (req, res) => {
-  const { name, school_id, address, van_id, code, shift } = req.body;
+  const { name, school_id, address, van_id, shift } = req.body;
 
   if (!name || !school_id || !shift)
     return res.status(400).json({ message: "Campos obrigatórios: name, school_id, shift." });
 
-  // TODO - remover code do banco de dados
   const coords = address ? await addressToCoords(address) : null;
   try {
     const team = await prisma.team.create({
       data: {
         name,
-        code: "",
         shift,
         driver_id: req.user.id,
         school_id: Number(school_id),
@@ -242,39 +240,6 @@ router.delete('/delete/:id', authenticateToken, requireDriver, async (req, res) 
     res.json({ message: 'Turma excluída com sucesso.' });
   } catch (error) {
     res.status(500).json({ message: 'Erro ao excluir turma.', error: error.message });
-  }
-});
-
-
-function generateCode() {
-  const letras = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const numeros = '0123456789';
-
-  let codigo = '';
-  for (let i = 0; i < 3; i++) {
-    codigo += letras.charAt(Math.floor(Math.random() * letras.length));
-  }
-  for (let i = 0; i < 3; i++) {
-    codigo += numeros.charAt(Math.floor(Math.random() * numeros.length));
-  }
-  return codigo;
-}
-
-
-router.get('/generateCode', authenticateToken, requireDriver, async (req, res) => {
-  try {
-    let codigo;
-    let existente;
-
-    do {
-      codigo = generateCode();
-      existente = await prisma.team.findUnique({ where: { code: codigo } });
-    } while (existente);
-
-    res.status(200).json({ code: codigo });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Erro ao gerar código da turma.', error: err.message });
   }
 });
 
