@@ -47,7 +47,6 @@ model student {
 model team {
   id                    Int      @id @default(autoincrement())
   name                  String   @db.VarChar(255)
-  code                  String   @db.VarChar(6)
   shift                 String   @db.VarChar(20)
   school_id             Int
   driver_id             Int
