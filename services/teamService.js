@@ -5,7 +5,6 @@ const prisma = new PrismaClient();
 
 /**
  * Recalcula as rotas de ida e volta da turma
- * @param teamId - ID da turma
  * @param shift - turno: 'morning' | 'afternoon'
  * @param startingLat - latitude inicial
  * @param startingLon - longitude inicial
@@ -39,7 +38,7 @@ export async function recalculateTeamRoutes(teamId, shift, startingLat, starting
     .map(st => ({ lat: st.student.latitude, lon: st.student.longitude }))
     .filter(s => s.lat && s.lon);
 
-  const boardingMarginPerChild = 2; // minutos por criança
+  const boardingMarginPerChild = 2; //minutos por criança
   const totalMarginMinutes = studentsGoing.length * boardingMarginPerChild;
 
   const schoolStartStr = shift === "morning" ? school.morning_limit : school.afternoon_limit;
@@ -47,8 +46,20 @@ export async function recalculateTeamRoutes(teamId, shift, startingLat, starting
   if (!schoolStartStr || !schoolEndStr)
     throw new Error("A escola não possui horários para o turno informado.");
 
-  const schoolStart = new Date(`1970-01-01T${schoolStartStr}:00`);
-  const schoolEnd = new Date(`1970-01-01T${schoolEndStr}:00`);
+  const today = new Date();
+  const [hourStart, minuteStart] = schoolStartStr.split(":").map(Number);
+  const [hourEnd, minuteEnd] = schoolEndStr.split(":").map(Number);
+
+  const schoolStart = new Date(today);
+  schoolStart.setHours(hourStart, minuteStart, 0, 0);
+
+  const schoolEnd = new Date(today);
+  schoolEnd.setHours(hourEnd, minuteEnd, 0, 0);
+
+  if (schoolStart < today) {
+    schoolStart.setDate(schoolStart.getDate() + 1);
+    schoolEnd.setDate(schoolEnd.getDate() + 1);
+  }
 
   //ida
   const routeGoing = await generateRoute({ lat: startLat, lon: startLon }, studentsGoing, {
