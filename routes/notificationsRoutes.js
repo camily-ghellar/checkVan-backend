@@ -8,15 +8,28 @@ import { requireDriver } from '../middlewares/roles.js';
 const router = Router();
 const prisma = new PrismaClient();
 
-admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-  }),
-});
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    }),
+  });
+}
+
 
 const ARRIVAL_THRESHOLD = 10; //10 metros
+
+
+function toDateOnlyUTC(date) {
+  const d = new Date(date);
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth();
+  const day = d.getUTCDate();
+  return new Date(Date.UTC(year, month, day));
+}
+
 
 router.post('/update-location', authenticateToken, requireDriver, async (req, res) => {
   const { teamId, lat, lon } = req.body;
@@ -42,12 +55,12 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
       const student = st.student;
       if (!student.guardian?.fcm_token) continue;
 
-      //embarque na van
       const distanceToPickup = getDistance(
         { latitude: lat, longitude: lon },
         { latitude: student.latitude, longitude: student.longitude }
       );
 
+      //embarque
       if (distanceToPickup <= ARRIVAL_THRESHOLD && !student.notifiedBoarding) {
         await admin.messaging().send({
           token: student.guardian.fcm_token,
@@ -71,7 +84,10 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
             body: `A van está chegando na casa de ${student.name}!`
           }
         });
-        await prisma.student.update({ where: { id: student.id }, data: { notifiedHome: true } });
+        await prisma.student.update({
+          where: { id: student.id },
+          data: { notifiedHome: true }
+        });
       }
 
       //chegada na escola
@@ -88,7 +104,10 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
             body: `${student.name} chegou na escola!`
           }
         });
-        await prisma.student.update({ where: { id: student.id }, data: { notifiedSchool: true } });
+        await prisma.student.update({
+          where: { id: student.id },
+          data: { notifiedSchool: true }
+        });
       }
     }
 
@@ -96,6 +115,55 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Erro ao atualizar localização.', error: err.message });
+  }
+});
+
+
+router.post('/send-presence-reminders', authenticateToken, async (req, res) => {
+  try {
+    const now = new Date();
+    const tomorrow = new Date();
+    tomorrow.setUTCDate(now.getUTCDate() + 1);
+    const dateOnly = toDateOnlyUTC(tomorrow);
+
+    //buscar presencas confirmadas para o dia seguinte
+    const confirmed = await prisma.student_presence.findMany({
+      where: { date: dateOnly },
+      select: { student_id: true },
+    });
+
+    const confirmedIds = confirmed.map(p => p.student_id);
+
+    //buscar alunos sem confirmacao
+    const students = await prisma.student.findMany({
+      where: {
+        id: { notIn: confirmedIds },
+      },
+      include: { guardian: { select: { name: true, fcm_token: true } } },
+    });
+
+    let sentCount = 0;
+    for (const student of students) {
+      if (!student.guardian?.fcm_token) continue;
+
+      await admin.messaging().send({
+        token: student.guardian.fcm_token,
+        notification: {
+          title: 'CheckVan',
+          body: `Você ainda não confirmou se ${student.name} vai amanhã. Deseja confirmar agora?`,
+        },
+      });
+
+      sentCount++;
+    }
+
+    res.json({ message: `Lembretes enviados com sucesso: ${sentCount}` });
+  } catch (err) {
+    console.error('Erro ao enviar lembretes de presença:', err);
+    res.status(500).json({
+      message: 'Erro ao enviar lembretes de presença.',
+      error: err.message,
+    });
   }
 });
 
