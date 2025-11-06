@@ -39,7 +39,8 @@ export async function recalculateTeamRoutes(teamId, shift, startingLat, starting
     .filter(s => s.lat && s.lon);
 
   const boardingMarginPerChild = 2; //minutos por criança
-  const totalMarginMinutes = studentsGoing.length * boardingMarginPerChild;
+  const minutesBeforeClass = 10; //minutos extras para chegar antes do inicio da aula
+  const totalMarginMinutes = studentsGoing.length * boardingMarginPerChild + minutesBeforeClass;
 
   const schoolStartStr = shift === "morning" ? school.morning_limit : school.afternoon_limit;
   const schoolEndStr = shift === "morning" ? school.morning_departure : school.afternoon_departure;
