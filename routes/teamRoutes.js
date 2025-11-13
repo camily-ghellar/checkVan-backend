@@ -56,7 +56,8 @@ router.get('/getAllByDriver', authenticateToken, requireDriver, async (req, res)
                 name: true,
                 birth_date: true,
                 gender: true,
-                user: { select: { id: true, name: true } }
+                user: { select: { id: true, name: true } },
+                address: true,
               }
             }
           }
