@@ -120,4 +120,40 @@ router.put("/update/:id", authenticateToken, requireDriver, async (req, res) => 
   }
 });
 
+router.delete("/delete/:id", authenticateToken, requireDriver, async (req, res) => {
+  const vanId = parseInt(req.params.id, 10);
+  const driver_id = req.user.id;
+
+  try {
+    const van = await prisma.van.findFirst({
+      where: { id: vanId, driver_id: driver_id },
+    });
+
+    if (!van) {
+      return res.status(403).json({ message: "Você não tem permissão para excluir esta van." });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.van_assignment.deleteMany({
+        where: { van_id: vanId },
+      });
+      
+      await tx.team.updateMany({
+        where: { van_id: vanId },
+        data: { van_id: null },
+      });
+
+      await tx.van.delete({
+        where: { id: vanId },
+      });
+    });
+
+    res.json({ message: "Van excluída com sucesso." });
+
+  } catch (err) {
+    console.error("Erro ao excluir van:", err.message);
+    res.status(500).json({ message: "Erro ao excluir van.", error: err.message });
+  }
+});
+
 export default router;
