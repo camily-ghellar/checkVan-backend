@@ -35,7 +35,6 @@ router.get('/next-trips', authenticateToken, requireDriver, async (req, res) => 
 
     const formattedTrips = trips.map(trip => {
       const nowMs = now.getTime();
-
       const tripsData = [];
 
       if (trip.departure_time_going && trip.departure_time_going > now) {
@@ -48,6 +47,7 @@ router.get('/next-trips', authenticateToken, requireDriver, async (req, res) => 
         else startsIn = `Em ${Math.floor(diffMinutes / 60)}h ${diffMinutes % 60}min`;
 
         tripsData.push({
+          teamId: trip.id, 
           tipo: 'Ida',
           rota: trip.name,
           escola: trip.school.name,
@@ -67,6 +67,7 @@ router.get('/next-trips', authenticateToken, requireDriver, async (req, res) => 
         else startsIn = `Em ${Math.floor(diffMinutes / 60)}h ${diffMinutes % 60}min`;
 
         tripsData.push({
+          teamId: trip.id, 
           tipo: 'Volta',
           rota: trip.name,
           escola: trip.school.name,
@@ -78,6 +79,12 @@ router.get('/next-trips', authenticateToken, requireDriver, async (req, res) => 
 
       return tripsData;
     }).flat();
+    
+    formattedTrips.sort((a, b) => {
+        const aDiff = a.comeca_em.startsWith('Agora') ? 0 : (a.comeca_em.includes('h') ? parseInt(a.comeca_em.split('h')[0].replace('Em ', '')) * 60 : parseInt(a.comeca_em.split(' ')[1]));
+        const bDiff = b.comeca_em.startsWith('Agora') ? 0 : (b.comeca_em.includes('h') ? parseInt(b.comeca_em.split('h')[0].replace('Em ', '')) * 60 : parseInt(b.comeca_em.split(' ')[1]));
+        return aDiff - bDiff;
+    });
 
     res.status(200).json({ trips: formattedTrips });
   } catch (err) {

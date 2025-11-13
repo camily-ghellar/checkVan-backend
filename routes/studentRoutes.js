@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import authenticateToken from '../middlewares/auth.js';
-import { requireGuardian, requireRoles} from "../middlewares/roles.js";
+import { requireGuardian, requireRoles } from "../middlewares/roles.js";
 import { addressToCoords } from '../services/geocodingService.js';
 import { generateRoute } from '../services/geocodingService.js';
 import multer from 'multer';
-import cloudinary from '../cloudinary.js'; 
+import cloudinary from '../cloudinary.js';
 
 const upload = multer();
 const router = Router();
@@ -25,7 +25,7 @@ router.post('/create', authenticateToken, requireGuardian, async (req, res) => {
   const { name, birth_date, gender, school_id, address, shift_going, shift_return } = req.body;
   console.log("re.body", req.body);
 
-  if (!['male','female'].includes(gender)) return res.status(400).json({ message: 'Gênero inválido.' });
+  if (!['male', 'female'].includes(gender)) return res.status(400).json({ message: 'Gênero inválido.' });
   if (!school_id) return res.status(400).json({ message: 'school_id é obrigatório.' });
 
   try {
@@ -95,29 +95,38 @@ router.post('/create', authenticateToken, requireGuardian, async (req, res) => {
   }
 });
 
-
-router.put('/update/:id', authenticateToken, requireGuardian, async (req, res) => {
+router.put('/update/:id', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
   const { id } = req.params;
-  const { name, address, school_id, birth_date, gender, shift_going, shift_return } = req.body;
+  const { name, address, school_id, birth_date, gender, shift_going, shift_return, latitude, longitude, team_id } = req.body;
+  const { role } = req.user;
 
   try {
     const data = {
-      ...(name && { name }),
-      ...(school_id && { school_id }),
-      ...(birth_date && { birth_date }),
-      ...(gender && { gender }),
+      ...(role === 'guardian' && name && { name }),
+      ...(role === 'guardian' && birth_date && { birth_date: new Date(birth_date) }),
+      ...(role === 'guardian' && gender && { gender }),
+      ...(role === 'guardian' && address && { address, latitude, longitude }), // Endereço
+      
+      ...(school_id && { school_id: Number(school_id) }),
       ...(shift_going && { shift_going }),
       ...(shift_return && { shift_return }),
     };
 
-    if (address) {
-      const coords = await addressToCoords(address);
-      data.address = address;
-      data.latitude = coords?.lat ?? null;
-      data.longitude = coords?.lon ?? null;
+    const updated = await prisma.student.update({ where: { id: parseInt(id, 10) }, data });
+
+    if (role === 'driver' && team_id !== undefined) {
+      const studentId = parseInt(id, 10);
+      const teamId = team_id ? parseInt(team_id, 10) : null;
+
+      await prisma.student_team.deleteMany({ where: { student_id: studentId } });
+
+      if (teamId) {
+        await prisma.student_team.create({
+          data: { student_id: studentId, team_id: teamId }
+        });
+      }
     }
 
-    const updated = await prisma.student.update({ where: { id: parseInt(id, 10) }, data });
     res.json({ message: 'Estudante atualizado com sucesso.', student: updated });
   } catch (err) {
     res.status(500).json({ message: 'Erro ao atualizar estudante.', error: err.message });
@@ -176,10 +185,10 @@ router.get("/:id/presence/day", authenticateToken, requireRoles("guardian", "dri
     });
 
     if (!presence) {
-      return res.json({ 
-        student_id: parseInt(id, 10), 
-        date: dateOnly.toISOString().slice(0, 10), 
-        status: 'BOTH' 
+      return res.json({
+        student_id: parseInt(id, 10),
+        date: dateOnly.toISOString().slice(0, 10),
+        status: 'BOTH'
       });
     }
 
@@ -202,7 +211,7 @@ router.get("/:id/presences/month", authenticateToken, requireRoles("guardian", "
   const yearInt = parseInt(String(year), 10);
 
   const startDate = toDateOnlyUTC(`${yearInt}-${monthInt + 1}-01`);
-  const endDate   = toDateOnlyUTC(`${yearInt}-${monthInt + 1}-${new Date(yearInt, monthInt + 1, 0).getDate()}`);
+  const endDate = toDateOnlyUTC(`${yearInt}-${monthInt + 1}-${new Date(yearInt, monthInt + 1, 0).getDate()}`);
 
   try {
     const presences = await prisma.student_presence.findMany({
@@ -237,18 +246,104 @@ router.get("/:id/presences/month", authenticateToken, requireRoles("guardian", "
   }
 });
 
-router.delete('/delete/:id', authenticateToken, requireGuardian, async (req, res) => {
-
-  const id = Number(req.params.id);
-  const student = await prisma.student.findUnique({ where: { id: id } });
+router.get("/:id/presences", authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
+  const { id } = req.params;
 
   try {
-    await prisma.student.delete({ where: { id: id } });
-    res.json({ message: 'Estudante deletado com sucesso.' });
-  } catch (err) {
-    res.status(500).json({ message: 'Erro ao deletar estudante.', error: err.message });
-  }
+    // 1. Pega o ano e mês (0-indexado) dos query parameters
+    const { year, month } = req.query; // Ex: ?year=2025&month=10 (vem do Flutter)
 
+    if (!year || !month) {
+      return res.status(400).json({ error: "Ano (year) e mês (month) são obrigatórios." });
+    }
+
+    const yearInt = parseInt(year, 10);
+    const monthInt = parseInt(month, 10); // O Flutter já mandou 0-indexado
+
+    // 2. Calcula o primeiro e o último dia do mês atual
+    // A função toDateOnlyUTC garante que estamos comparando apenas datas
+    const startDate = toDateOnlyUTC(new Date(yearInt, monthInt, 1));
+
+    const daysInMonth = new Date(yearInt, monthInt + 1, 0).getDate(); // Pega o último dia (ex: 30 para Nov)
+    const endDate = toDateOnlyUTC(new Date(yearInt, monthInt, daysInMonth));
+
+    // 3. Busca no Prisma os registros de presença existentes para o mês
+    const presences = await prisma.student_presence.findMany({
+      where: {
+        student_id: parseInt(id, 10),
+        date: { gte: startDate, lte: endDate },
+      },
+      select: { date: true, status: true },
+    });
+
+    // 4. Converte os resultados em um "mapa" para busca rápida
+    // (Ex: { "2025-11-03": "GOING", "2025-11-04": "NONE" })
+    const presenceMap = presences.reduce((acc, record) => {
+      acc[record.date.toISOString().slice(0, 10)] = record.status;
+      return acc;
+    }, {});
+
+    // 5. Constrói o array final para o mês inteiro
+    // Se um dia não está no mapa, o status padrão é "BOTH"
+    const result = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      const currentDate = toDateOnlyUTC(new Date(yearInt, monthInt, day));
+      const isoDate = currentDate.toISOString().slice(0, 10);
+
+      const status = presenceMap[isoDate]; // Pega o status (pode ser "GOING", "NONE", ou undefined)
+
+      result.push({
+        date: isoDate,
+        // AQUI: Retorna o status encontrado ou null se for undefined
+        status: status !== undefined ? status : null, // <-- CORREÇÃO
+      });
+    }
+
+    console.log("result: ", result);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.delete('/delete/:id', authenticateToken, requireGuardian, async (req, res) => {
+  const id = Number(req.params.id);
+
+  try {
+    const student = await prisma.student.findUnique({ where: { id: id } });
+
+    if (!student) {
+      return res.status(404).json({ message: 'Estudante não encontrado.' });
+    }
+
+    if (student.guardian_id !== req.user.id) {
+      return res.status(403).json({ message: 'Você não tem permissão para excluir este estudante.' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.student_team.deleteMany({
+        where: { student_id: id },
+      });
+
+      await tx.student_presence.deleteMany({
+        where: { student_id: id },
+      });
+
+      await tx.van_assignment.deleteMany({
+        where: { student_id: id },
+      });
+
+      await tx.student.delete({
+        where: { id: id },
+      });
+    });
+
+    res.json({ message: 'Estudante deletado com sucesso.' });
+
+  } catch (err) {
+    console.log("err.message", err.message);
+    res.status(500).json({ message: 'Erro ao apagar estudante.', error: err.message });
+  }
 });
 
 
@@ -258,7 +353,23 @@ router.get('/get/:id', authenticateToken, requireRoles("guardian", "driver"), as
   if (Number.isNaN(id)) return res.status(400).json({ message: 'ID inválido.' });
 
   try {
-    const student = await prisma.student.findUnique({ where: { id: id } });
+    const student = await prisma.student.findUnique({
+      where: { id: id },
+      include: {
+        user: { 
+          select: {
+            id: true,
+            name: true,
+            phone: true
+          }
+        },
+        student_team: { 
+          select: {
+            team_id: true
+          }
+        }
+      }
+    });
     if (!student) return res.status(404).json({ message: 'Estudante não encontrado.' });
 
     res.json({ student });
@@ -268,24 +379,46 @@ router.get('/get/:id', authenticateToken, requireRoles("guardian", "driver"), as
 
 });
 
-
 router.get('/getAll', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
-
   try {
-    const students = await prisma.student.findMany();
+    const students = await prisma.student.findMany({
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true
+          }
+        },
+        student_team: { 
+          select: { team_id: true }
+        }
+      }
+    });
     res.json({ students });
   } catch (err) {
     res.status(500).json({ message: 'Erro ao listar estudantes.', error: err.message });
   }
-
 });
 
-
 router.get('/getStudents', authenticateToken, requireGuardian, async (req, res) => {
-
   try {
     const students = await prisma.student.findMany({
       where: { guardian_id: req.user.id },
+      include: {
+        user: { 
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true
+          }
+        },
+        student_team: {
+          select: { team_id: true }
+        }
+      }
     });
 
     if (!students.length) {
@@ -296,7 +429,6 @@ router.get('/getStudents', authenticateToken, requireGuardian, async (req, res) 
   } catch (err) {
     res.status(500).json({ message: 'Erro ao buscar dados dos estudantes.', error: err.message });
   }
-
 });
 
 router.get('/presence-summary', authenticateToken, requireGuardian, async (req, res) => {
@@ -311,7 +443,7 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
     }
     console.log("now", now);
     console.log("targetDate", targetDate);
-    
+
     const dateForQuery = toDateOnlyUTC(targetDate.toISOString());
     console.log("targetDate.toISOString()", targetDate.toISOString());
     console.log("dateForQuery", dateForQuery);
@@ -326,14 +458,14 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
     });
 
     if (students.length === 0) {
-      return res.json([]); 
+      return res.json([]);
     }
 
     const studentIds = students.map(s => s.id);
     const presencesFound = await prisma.student_presence.findMany({
       where: {
         student_id: { in: studentIds },
-        date: dateForQuery, 
+        date: dateForQuery,
       },
       select: {
         student_id: true,
@@ -357,58 +489,58 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
 });
 
 router.post('/:id/upload-image', authenticateToken, requireGuardian, upload.single('image_profile'), async (req, res) => {
-    const { id } = req.params;
+  const { id } = req.params;
 
-    if (!req.file) {
-      return res.status(400).json({ message: 'Nenhum arquivo de imagem enviado.' });
-    }
-
-    try {
-      const uploadToCloudinary = () => {
-        return new Promise((resolve, reject) => {
-          const uploadStream = cloudinary.uploader.upload_stream(
-            {
-              folder: 'student_profiles', 
-              public_id: `student_${id}`, 
-              overwrite: true,
-            },
-            (error, result) => {
-              if (error) return reject(error);
-              if (!result) return reject(new Error('Falha no upload para Cloudinary.'));
-              resolve(result); 
-            }
-          );
-
-          uploadStream.end(req.file.buffer);
-        });
-      };
-
-      const uploadResult = await uploadToCloudinary();
-      
-      const imageUrl = uploadResult.secure_url;
-
-      const updatedStudent = await prisma.student.update({
-        where: { id: parseInt(id, 10) },
-        data: {
-          image_profile: imageUrl,
-        },
-      });
-
-      res.status(200).json({
-        message: 'Imagem enviada com sucesso.',
-        student: updatedStudent,
-      });
-
-    } catch (err) {
-      console.error('Erro no upload para Cloudinary:', err);
-      res.status(500).json({ message: 'Erro ao salvar a imagem.', error: err.message });
-    }
+  if (!req.file) {
+    return res.status(400).json({ message: 'Nenhum arquivo de imagem enviado.' });
   }
+
+  try {
+    const uploadToCloudinary = () => {
+      return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'student_profiles',
+            public_id: `student_${id}`,
+            overwrite: true,
+          },
+          (error, result) => {
+            if (error) return reject(error);
+            if (!result) return reject(new Error('Falha no upload para Cloudinary.'));
+            resolve(result);
+          }
+        );
+
+        uploadStream.end(req.file.buffer);
+      });
+    };
+
+    const uploadResult = await uploadToCloudinary();
+
+    const imageUrl = uploadResult.secure_url;
+
+    const updatedStudent = await prisma.student.update({
+      where: { id: parseInt(id, 10) },
+      data: {
+        image_profile: imageUrl,
+      },
+    });
+
+    res.status(200).json({
+      message: 'Imagem enviada com sucesso.',
+      student: updatedStudent,
+    });
+
+  } catch (err) {
+    console.error('Erro no upload para Cloudinary:', err);
+    res.status(500).json({ message: 'Erro ao salvar a imagem.', error: err.message });
+  }
+}
 );
 
 router.get('/search', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
   const { name } = req.query;
-  const { role, id: userId } = req.user; 
+  const { role, id: userId } = req.user;
 
   if (!name || typeof name !== 'string') {
     try {
@@ -422,7 +554,7 @@ router.get('/search', authenticateToken, requireRoles("guardian", "driver"), asy
       }
       return res.json({ students });
     } catch (err) {
-       return res.status(500).json({ message: 'Erro ao listar estudantes.', error: err.message });
+      return res.status(500).json({ message: 'Erro ao listar estudantes.', error: err.message });
     }
   }
 
@@ -430,7 +562,7 @@ router.get('/search', authenticateToken, requireRoles("guardian", "driver"), asy
     const whereClause = {
       name: {
         contains: name,
-        mode: 'insensitive', 
+        mode: 'insensitive',
       }
     };
 

@@ -11,6 +11,19 @@ const { sign } = jwt;
 const router = Router();
 const prisma = new PrismaClient();
 
+function toDateOnlyUTC(date) {
+  const d = new Date(date);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+function parseTime(timeStr, baseDate) {
+  if (!timeStr) return null;
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  const date = new Date(baseDate);
+  date.setHours(hours, minutes, 0, 0);
+  return date;
+}
 
 router.post('/create', async (req, res) => {
   const { name, phone, email, password, role, driver_license, birth_date } = req.body;
@@ -51,7 +64,6 @@ router.post('/create', async (req, res) => {
 
 
 router.post('/login', async (req, res) => {
-
   const { email, password } = req.body;
 
   if (!email || !password) return res.status(400).json({ message: 'E-mail e senha são obrigatórios.' });
@@ -63,7 +75,6 @@ router.post('/login', async (req, res) => {
     }
 
     const token = sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
-
     res.json({ message: 'Login realizado com sucesso.', token });
   } catch (err) {
     res.status(500).json({ message: 'Erro interno ao tentar fazer login.', error: err.message });
@@ -165,5 +176,255 @@ router.get('/getProfile', authenticateToken, requireRoles("guardian", "driver"),
 
 });
 
+function getStudentNextTripStatus(
+  student,
+  now,
+  presenceMap,
+  todayBase,
+  todayUTC,
+  tomorrowUTC
+) {
+  const { school } = student;
+  const team = student.student_team[0]?.team;
+
+  if (!school || !team) {
+    return {
+      studentId: student.id,
+      name: student.name,
+      status: 'ERROR',
+      message: 'Aluno sem escola ou turma configurada.',
+      trip: null,
+    };
+  }
+
+  const morningLimit = parseTime(school.morning_limit, todayBase);
+  const afternoonLimit = parseTime(school.afternoon_limit, todayBase);
+
+  if (!morningLimit || !afternoonLimit) {
+    return {
+      studentId: student.id,
+      name: student.name,
+      status: 'ERROR',
+      message: 'Horários da escola não configurados.',
+      trip: null,
+    };
+  }
+
+  // 1. Determinar a Próxima Viagem (lógica de horário)
+  let targetDateUTC;
+  let targetDateISO; // 'YYYY-MM-DD' para o mapa
+  let tripType;
+  let tripTime;
+
+  if (now < morningLimit) {
+    // Cenário 1: Ida de Hoje
+    tripType = 'GOING';
+    tripTime = team.departure_time_going;
+    targetDateUTC = todayUTC;
+    targetDateISO = todayUTC.toISOString().slice(0, 10);
+  } else if (now < afternoonLimit) {
+    // Cenário 2: Volta de Hoje
+    tripType = 'RETURNING';
+    tripTime = team.departure_time_return;
+    targetDateUTC = todayUTC;
+    targetDateISO = todayUTC.toISOString().slice(0, 10);
+  } else {
+    // Cenário 3: Ida de Amanhã
+    tripType = 'GOING';
+    tripTime = team.departure_time_going;
+    targetDateUTC = tomorrowUTC;
+    targetDateISO = tomorrowUTC.toISOString().slice(0, 10);
+  }
+
+  if (!tripTime) {
+    return {
+      studentId: student.id,
+      name: student.name,
+      status: 'ERROR',
+      message: `Horário de partida (${tripType}) não definido para a turma.`,
+      trip: null,
+    };
+  }
+
+  const tripInfo = {
+    type: tripType,
+    date: targetDateUTC, // Data UTC
+    departureTime: tripTime, // Horário (DateTime)
+  };
+
+  // 2. Determinar o Status da Viagem
+
+  // Status 1: EM ROTA (Prioridade máxima)
+  if (student.notifiedBoarding) {
+    return {
+      studentId: student.id,
+      name: student.name,
+      status: 'EM_ROTA',
+      message: 'Seu filho(a) já embarcou e está a caminho!',
+      trip: tripInfo,
+    };
+  }
+
+  // Status 2: Verificar Presença (Confirmada, Pendente ou Cancelada)
+  const presenceKey = `${student.id}-${targetDateISO}`;
+  const presenceStatus = presenceMap.get(presenceKey); // Ex: 'BOTH', 'NONE', ou undefined
+
+  if (!presenceStatus) {
+    // 2a. AGUARDANDO_CONFIRMACAO (Nenhum registro encontrado)
+    return {
+      studentId: student.id,
+      name: student.name,
+      status: 'AGUARDANDO_CONFIRMACAO',
+      message: 'Por favor, confirme a presença para esta viagem.',
+      trip: tripInfo,
+    };
+  }
+
+  // 2b. NAO_VAI (Presença incompatível)
+  const isNotGoing =
+    presenceStatus === 'NONE' ||
+    (tripType === 'GOING' && presenceStatus === 'RETURNING') ||
+    (tripType === 'RETURNING' && presenceStatus === 'GOING');
+
+  if (isNotGoing) {
+    return {
+      studentId: student.id,
+      name: student.name,
+      status: 'NAO_VAI',
+      message: 'Viagem não programada ou cancelada.',
+      trip: tripInfo,
+    };
+  }
+
+  // Status 3: AGUARDANDO_OUTROS
+  // (Presença confirmada, compatível, mas ainda não embarcou)
+  return {
+    studentId: student.id,
+    name: student.name,
+    status: 'AGUARDANDO_OUTROS',
+    message: 'Presença confirmada. Aguardando o horário de partida.',
+    trip: tripInfo,
+  };
+}
+
+/**
+ * POST /guardian/next-trip-status-bulk
+ * Pega o status da próxima viagem para uma lista de alunos.
+ * Corpo: { "studentIds": [1, 2, 3] }
+ *
+ * RETORNO SIMPLIFICADO:
+ * { "status": "EM_ROTA" | "AGUARDANDO_CONFIRMACAO" | "AGUARDANDO_OUTROS" | "NAO_VAI" }
+ */
+router.post(
+  '/guardian/next-trip-status-bulk',
+  authenticateToken,
+  requireRoles('guardian'),
+  async (req, res) => {
+    const { studentIds } = req.body;
+    const guardianId = req.user.id; // ID do guardião logado
+
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      // Se não há alunos, não há viagem
+      return res.json({ status: 'NAO_VAI' });
+    }
+
+    const studentIdsInt = studentIds.map((id) => parseInt(id, 10));
+    const now = new Date(); // Horário atual
+
+    // Define as datas de interesse (hoje e amanhã)
+    const todayBase = new Date();
+    todayBase.setHours(0, 0, 0, 0); // Hoje à meia-noite (local)
+    const tomorrowBase = new Date(todayBase);
+    tomorrowBase.setDate(tomorrowBase.getDate() + 1);
+
+    const todayUTC = toDateOnlyUTC(todayBase);
+    const tomorrowUTC = toDateOnlyUTC(tomorrowBase);
+
+    try {
+      // 1. Busca todos os alunos, escolas e turmas (1ª Query)
+      const students = await prisma.student.findMany({
+        where: {
+          id: { in: studentIdsInt },
+          guardian_id: guardianId, // Garante que o guardião só veja seus filhos
+        },
+        include: {
+          school: true,
+          student_team: {
+            include: { team: true },
+          },
+        },
+      });
+
+      const foundStudentIds = students.map((s) => s.id);
+      if (foundStudentIds.length === 0) {
+        return res.json({ status: 'NAO_VAI' });
+      }
+
+      // 2. Busca todas as presenças relevantes (2ª Query)
+      const presences = await prisma.student_presence.findMany({
+        where: {
+          student_id: { in: foundStudentIds },
+          date: { in: [todayUTC, tomorrowUTC] }, // Busca hoje e amanhã
+        },
+      });
+
+      // 3. Transforma presenças em um Mapa para consulta rápida
+      const presenceMap = new Map();
+      for (const p of presences) {
+        const isoDate = p.date.toISOString().slice(0, 10);
+        const key = `${p.student_id}-${isoDate}`;
+        presenceMap.set(key, p.status);
+      }
+
+      // 4. Processa cada aluno em memória
+      const results = students.map((student) =>
+        getStudentNextTripStatus(
+          student,
+          now,
+          presenceMap,
+          todayBase,
+          todayUTC,
+          tomorrowUTC
+        )
+      );
+
+      // --- INÍCIO DA NOVA LÓGICA DE AGREGAÇÃO ---
+
+      // Extrai apenas os status da lista de resultados
+      const statuses = results.map((r) => r.status);
+
+      // Prioridade 1: Se QUALQUER aluno está em rota
+      if (statuses.includes('EM_ROTA')) {
+        return res.json({ status: 'EM_ROTA' });
+      }
+
+      // Prioridade 2: Se QUALQUER aluno está aguardando confirmação
+      if (statuses.includes('AGUARDANDO_CONFIRMACAO')) {
+        return res.json({ status: 'AGUARDANDO_CONFIRMACAO' });
+      }
+
+      // Prioridade 3: Se TODOS estão confirmados (ou não vão)
+      // e PELO MENOS UM está 'Aguardando Outros'
+      const isWaiting = statuses.includes('AGUARDANDO_OUTROS');
+      const allConfirmed = statuses.every(
+        (s) => s === 'AGUARDANDO_OUTROS' || s === 'NAO_VAI' || s === 'ERROR'
+      );
+
+      if (isWaiting && allConfirmed) {
+        return res.json({ status: 'AGUARDANDO_OUTROS' });
+      }
+      
+      // Prioridade 4: Se TODOS não vão (ou têm erro)
+      // Este é o estado "padrão" se nenhuma das condições acima for atendida
+      return res.json({ status: 'NAO_VAI' });
+      
+      // --- FIM DA NOVA LÓGICA DE AGREGAÇÃO ---
+
+    } catch (error) {
+      console.error('Erro ao buscar status de múltiplas viagens:', error);
+      res.status(500).json({ error: 'Erro interno no servidor.' });
+    }
+  }
+);
 
 export default router;
