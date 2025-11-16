@@ -44,7 +44,11 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
       include: {
         school: true,
         student_team: {
-          include: { student: { include: { guardian: true } } }
+          include: { 
+            student: { 
+              include: { user: true } 
+            } 
+          }
         }
       }
     });
@@ -53,7 +57,7 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
 
     for (const st of team.student_team) {
       const student = st.student;
-      if (!student.guardian?.fcm_token) continue;
+      if (!student.user?.fcm_token) continue;
 
       const distanceToPickup = getDistance(
         { latitude: lat, longitude: lon },
@@ -63,7 +67,7 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
       //embarque
       if (distanceToPickup <= ARRIVAL_THRESHOLD && !student.notifiedBoarding) {
         await admin.messaging().send({
-          token: student.guardian.fcm_token,
+          token: student.user.fcm_token,
           notification: {
             title: 'CheckVan',
             body: `${student.name} embarcou na van!`
@@ -78,7 +82,7 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
       //chegada na casa
       if (distanceToPickup <= ARRIVAL_THRESHOLD && !student.notifiedHome) {
         await admin.messaging().send({
-          token: student.guardian.fcm_token,
+          token: student.user.fcm_token,
           notification: {
             title: 'CheckVan',
             body: `A van está chegando na casa de ${student.name}!`
@@ -98,7 +102,7 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
 
       if (distanceToSchool <= ARRIVAL_THRESHOLD && !student.notifiedSchool) {
         await admin.messaging().send({
-          token: student.guardian.fcm_token,
+          token: student.user.fcm_token,
           notification: {
             title: 'CheckVan',
             body: `${student.name} chegou na escola!`
@@ -118,6 +122,19 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
   }
 });
 
+function formatStudentNames(names) {
+  const cleanNames = names.map(name => name.trim());
+
+  if (cleanNames.length === 0) return '';
+  if (cleanNames.length === 1) return cleanNames[0];
+  if (cleanNames.length === 2) return `${cleanNames[0]} e ${cleanNames[1]}`;
+  
+  const allExceptLast = cleanNames.slice(0, -1);
+  const last = cleanNames[cleanNames.length - 1];
+  
+  return `${allExceptLast.join(', ')} e ${last}`;
+}
+
 
 router.post('/send-presence-reminders', authenticateToken, async (req, res) => {
   try {
@@ -126,7 +143,6 @@ router.post('/send-presence-reminders', authenticateToken, async (req, res) => {
     tomorrow.setUTCDate(now.getUTCDate() + 1);
     const dateOnly = toDateOnlyUTC(tomorrow);
 
-    //buscar presencas confirmadas para o dia seguinte
     const confirmed = await prisma.student_presence.findMany({
       where: { date: dateOnly },
       select: { student_id: true },
@@ -134,30 +150,52 @@ router.post('/send-presence-reminders', authenticateToken, async (req, res) => {
 
     const confirmedIds = confirmed.map(p => p.student_id);
 
-    //buscar alunos sem confirmacao
     const students = await prisma.student.findMany({
       where: {
         id: { notIn: confirmedIds },
       },
-      include: { guardian: { select: { name: true, fcm_token: true } } },
+      include: { 
+        user: { 
+          select: { name: true, fcm_token: true } 
+        } 
+      },
     });
 
-    let sentCount = 0;
+    const guardiansToNotify = new Map();
+
     for (const student of students) {
-      if (!student.guardian?.fcm_token) continue;
+      const fcmToken = student.user?.fcm_token;
+      if (!fcmToken) continue;
+
+      if (!guardiansToNotify.has(fcmToken)) {
+        guardiansToNotify.set(fcmToken, {
+          token: fcmToken,
+          studentNames: []
+        });
+      }
+      
+      guardiansToNotify.get(fcmToken).studentNames.push(student.name);
+    }
+
+    let sentCount = 0;
+    for (const [token, data] of guardiansToNotify.entries()) {
+      
+      const studentNameList = formatStudentNames(data.studentNames);
+      
+      const title = '🚨 Lembrete de Presença';
+      const body = `Estamos preparando a rota de amanhã. Não se esqueça de confirmar a presença de ${studentNameList}!`;
 
       await admin.messaging().send({
-        token: student.guardian.fcm_token,
+        token: token,
         notification: {
-          title: 'CheckVan',
-          body: `Você ainda não confirmou se ${student.name} vai amanhã. Deseja confirmar agora?`,
+          title: title,
+          body: body,
         },
       });
-
       sentCount++;
     }
 
-    res.json({ message: `Lembretes enviados com sucesso: ${sentCount}` });
+    res.json({ message: `Lembretes enviados com sucesso para ${sentCount} responsáveis.` });
   } catch (err) {
     console.error('Erro ao enviar lembretes de presença:', err);
     res.status(500).json({
