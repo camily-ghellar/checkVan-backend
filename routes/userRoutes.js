@@ -427,4 +427,24 @@ router.post(
   }
 );
 
+router.post('/save-fcm-token', authenticateToken, async (req, res) => {
+  const { fcm_token } = req.body;
+  const userId = req.user.id;
+
+  if (!fcm_token) {
+    return res.status(400).json({ message: 'fcm_token é obrigatório.' });
+  }
+
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { fcm_token: fcm_token },
+    });
+    res.json({ message: 'Token FCM salvo com sucesso.' });
+  } catch (err) {
+    console.error('Erro ao salvar FCM token:', err);
+    res.status(500).json({ message: 'Erro ao salvar token.', error: err.message });
+  }
+});
+
 export default router;

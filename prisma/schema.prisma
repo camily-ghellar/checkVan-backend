@@ -92,6 +92,7 @@ model user {
   students       student[] @relation("guardian_students")
   teams          team[]    @relation("driver_teams")
   vans           van[]     @relation("driver_vans")
+  fcm_token      String? 
 }
 
 model student_presence {
