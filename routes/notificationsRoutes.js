@@ -18,10 +18,6 @@ if (!admin.apps.length) {
   });
 }
 
-
-const ARRIVAL_THRESHOLD = 10; //10 metros
-
-
 function toDateOnlyUTC(date) {
   const d = new Date(date);
   const year = d.getUTCFullYear();
@@ -30,6 +26,18 @@ function toDateOnlyUTC(date) {
   return new Date(Date.UTC(year, month, day));
 }
 
+function formatStudentNames(names) {
+  const cleanNames = names.map(name => name.trim());
+
+  if (cleanNames.length === 0) return '';
+  if (cleanNames.length === 1) return cleanNames[0];
+  if (cleanNames.length === 2) return `${cleanNames[0]} e ${cleanNames[1]}`;
+  
+  const allExceptLast = cleanNames.slice(0, -1);
+  const last = cleanNames[cleanNames.length - 1];
+  
+  return `${allExceptLast.join(', ')} e ${last}`;
+}
 
 router.post('/update-location', authenticateToken, requireDriver, async (req, res) => {
   const { teamId, lat, lon } = req.body;
@@ -122,24 +130,9 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
   }
 });
 
-function formatStudentNames(names) {
-  const cleanNames = names.map(name => name.trim());
-
-  if (cleanNames.length === 0) return '';
-  if (cleanNames.length === 1) return cleanNames[0];
-  if (cleanNames.length === 2) return `${cleanNames[0]} e ${cleanNames[1]}`;
-  
-  const allExceptLast = cleanNames.slice(0, -1);
-  const last = cleanNames[cleanNames.length - 1];
-  
-  return `${allExceptLast.join(', ')} e ${last}`;
-}
-
-
 router.post('/send-presence-reminders', authenticateToken, async (req, res) => {
   try {
     const now = new Date();
-    const tomorrow = new Date();
     tomorrow.setUTCDate(now.getUTCDate() + 1);
     const dateOnly = toDateOnlyUTC(tomorrow);
 
@@ -202,6 +195,171 @@ router.post('/send-presence-reminders', authenticateToken, async (req, res) => {
       message: 'Erro ao enviar lembretes de presença.',
       error: err.message,
     });
+  }
+});
+
+router.post('/notify-proximity', authenticateToken, requireDriver, async (req, res) => {
+  const { studentId, minutes } = req.body;
+  console.log("minutes: ", minutes);
+
+  if (!studentId || minutes === undefined) {
+    return res.status(400).json({ message: 'studentId e minutes são obrigatórios.' });
+  }
+
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: Number(studentId) },
+      include: { 
+        user: { select: { fcm_token: true } }
+      }
+    });
+
+    if (!student?.user?.fcm_token) {
+      return res.status(200).json({ message: 'Usuário sem token, notificação pulada.' });
+    }
+
+    const mins = Math.max(1, Math.ceil(minutes)); 
+
+    await admin.messaging().send({
+      token: student.user.fcm_token,
+      notification: {
+        title: '🚐 Hora de ir pra escola',
+        body: `A van está a caminho! Chegará em seu portão em aproximadamente ${mins} minutos.`
+      }
+    });
+
+    res.json({ message: `Notificação de proximidade enviada para ${student.name}.` });
+
+  } catch (err) {
+    console.error('Erro ao enviar notificação de proximidade:', err);
+    res.status(500).json({ message: 'Erro ao enviar notificação.', error: err.message });
+  }
+});
+
+router.post('/notify-arrival-home', authenticateToken, requireDriver, async (req, res) => {
+  const { studentId } = req.body;
+
+  if (!studentId) return res.status(400).json({ message: 'studentId é obrigatório.' });
+
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: Number(studentId) },
+      include: { user: true }
+    });
+
+    if (!student?.user?.fcm_token) {
+      return res.status(200).json({ message: 'Aluno sem token ou não encontrado.' });
+    }
+
+    if (student.notifiedHome) {
+      return res.status(200).json({ message: 'Notificação de casa já enviada anteriormente.' });
+    }
+
+    await admin.messaging().send({
+      token: student.user.fcm_token,
+      notification: {
+        title: 'CheckVan',
+        body: `A van está chegando na casa de ${student.name}!`
+      }
+    });
+
+    await prisma.student.update({
+      where: { id: Number(studentId) },
+      data: { notifiedHome: true }
+    });
+
+    res.json({ message: `Notificação de chegada na casa enviada para ${student.name}.` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erro ao notificar chegada na casa.' });
+  }
+});
+
+router.post('/notify-boarding', authenticateToken, requireDriver, async (req, res) => {
+  const { studentId } = req.body;
+
+  if (!studentId) return res.status(400).json({ message: 'studentId é obrigatório.' });
+
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: Number(studentId) },
+      include: { user: true }
+    });
+
+    if (!student?.user?.fcm_token) {
+      return res.status(200).json({ message: 'Aluno sem token.' });
+    }
+
+    await admin.messaging().send({
+      token: student.user.fcm_token,
+      notification: {
+        title: '🚸 No caminho da educação',
+        body: `${student.name} já embarcou e está à caminho da escola. Acompanhe a rota pelo mapa!`
+      }
+    });
+
+    await prisma.student.update({
+      where: { id: Number(studentId) },
+      data: { notifiedBoarding: true }
+    });
+
+    res.json({ message: `Embarque de ${student.name} registrado e notificado.` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erro ao notificar embarque.' });
+  }
+});
+
+router.post('/notify-arrival-school', authenticateToken, requireDriver, async (req, res) => {
+  const { teamId } = req.body;
+  console.log("passou no /notify-arrival-school: ");
+
+  if (!teamId) return res.status(400).json({ message: 'teamId é obrigatório.' });
+
+  try {
+    const team = await prisma.team.findUnique({
+      where: { id: Number(teamId) },
+      include: {
+        student_team: {
+          include: {
+            student: {
+              include: { user: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!team) return res.status(404).json({ message: 'Turma não encontrada.' });
+
+    let count = 0;
+    
+    // Use admin.messaging().sendMulticast() se tiver muitos tokens
+    for (const st of team.student_team) {
+      const student = st.student;
+      if (student.user?.fcm_token) {
+        
+        await admin.messaging().send({
+          token: student.user.fcm_token,
+          notification: {
+            title: '📚 Hora de estudar',
+            body: `Tio ${req.user.name} finalizou a rota. ${student.name} está na escola!`
+          }
+        });
+
+        await prisma.student.update({
+          where: { id: student.id },
+          data: { notifiedSchool: true }
+        });
+        
+        count++;
+      }
+    }
+
+    res.json({ message: `Notificações de escola enviadas para ${count} alunos.` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erro ao notificar chegada na escola.' });
   }
 });
 
