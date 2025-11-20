@@ -74,7 +74,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'E-mail ou senha inválidos.' });
     }
 
-    const token = sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = sign({ id: user.id, role: user.role, name: user.name }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.json({ message: 'Login realizado com sucesso.', token });
   } catch (err) {
     res.status(500).json({ message: 'Erro interno ao tentar fazer login.', error: err.message });
