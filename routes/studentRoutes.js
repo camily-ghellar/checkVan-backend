@@ -96,20 +96,25 @@ router.post('/create', authenticateToken, requireGuardian, async (req, res) => {
 
 router.put('/update/:id', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
   const { id } = req.params;
-  const { name, address, school_id, birth_date, gender, shift_going, shift_return, latitude, longitude, team_id } = req.body;
+  const { name, address, school_id, birth_date, gender, shift_going, shift_return, team_id } = req.body;
   const { role } = req.user;
 
   try {
     const data = {
       ...(role === 'guardian' && name && { name }),
       ...(role === 'guardian' && birth_date && { birth_date: new Date(birth_date) }),
-      ...(role === 'guardian' && gender && { gender }),
-      ...(role === 'guardian' && address && { address, latitude, longitude }), // Endereço
-      
+      ...(role === 'guardian' && gender && { gender }),      
       ...(school_id && { school_id: Number(school_id) }),
       ...(shift_going && { shift_going }),
       ...(shift_return && { shift_return }),
     };
+
+    if (address) {
+      const coords = await addressToCoords(address);
+      data.address = address;
+      data.latitude = coords?.lat ?? null;
+      data.longitude = coords?.lon ?? null;
+    }
 
     const updated = await prisma.student.update({ where: { id: parseInt(id, 10) }, data });
 
