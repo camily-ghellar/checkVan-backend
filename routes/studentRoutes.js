@@ -23,7 +23,6 @@ function toDateOnlyUTC(date) {
 
 router.post('/create', authenticateToken, requireGuardian, async (req, res) => {
   const { name, birth_date, gender, school_id, address, shift_going, shift_return } = req.body;
-  console.log("re.body", req.body);
 
   if (!['male', 'female'].includes(gender)) return res.status(400).json({ message: 'Gênero inválido.' });
   if (!school_id) return res.status(400).json({ message: 'school_id é obrigatório.' });
@@ -299,7 +298,6 @@ router.get("/:id/presences", authenticateToken, requireRoles("guardian", "driver
       });
     }
 
-    console.log("result: ", result);
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -341,7 +339,6 @@ router.delete('/delete/:id', authenticateToken, requireGuardian, async (req, res
     res.json({ message: 'Estudante deletado com sucesso.' });
 
   } catch (err) {
-    console.log("err.message", err.message);
     res.status(500).json({ message: 'Erro ao apagar estudante.', error: err.message });
   }
 });
@@ -441,12 +438,8 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
     if (now.getUTCHours() >= 21) {
       targetDate.setUTCDate(targetDate.getUTCDate() + 1);
     }
-    console.log("now", now);
-    console.log("targetDate", targetDate);
 
     const dateForQuery = toDateOnlyUTC(targetDate.toISOString());
-    console.log("targetDate.toISOString()", targetDate.toISOString());
-    console.log("dateForQuery", dateForQuery);
 
     const students = await prisma.student.findMany({
       where: { guardian_id: req.user.id },

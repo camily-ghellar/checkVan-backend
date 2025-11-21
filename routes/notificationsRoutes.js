@@ -200,7 +200,6 @@ router.post('/send-presence-reminders', authenticateToken, async (req, res) => {
 
 router.post('/notify-proximity', authenticateToken, requireDriver, async (req, res) => {
   const { studentId, minutes } = req.body;
-  console.log("minutes: ", minutes);
 
   if (!studentId || minutes === undefined) {
     return res.status(400).json({ message: 'studentId e minutes são obrigatórios.' });
@@ -312,7 +311,6 @@ router.post('/notify-boarding', authenticateToken, requireDriver, async (req, re
 
 router.post('/notify-arrival-school', authenticateToken, requireDriver, async (req, res) => {
   const { teamId } = req.body;
-  console.log("passou no /notify-arrival-school: ");
 
   if (!teamId) return res.status(400).json({ message: 'teamId é obrigatório.' });
 

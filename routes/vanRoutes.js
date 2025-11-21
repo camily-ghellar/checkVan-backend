@@ -41,7 +41,6 @@ router.get("/getAll", authenticateToken, requireDriver, async (req, res) => {
     });
     res.json({ vans }); 
   } catch (err) {
-    console.log("err", err);
     res.status(500).json({ message: "Erro ao listar vans.", error: err.message });
   }
 });
