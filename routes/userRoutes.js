@@ -74,7 +74,12 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'E-mail ou senha inválidos.' });
     }
 
-    const token = sign({ id: user.id, role: user.role, name: user.name }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = sign({ 
+      id: user.id, 
+      role: user.role, 
+      name: user.name, 
+      isTempPassword: user.is_temp_password
+    }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.json({ message: 'Login realizado com sucesso.', token });
   } catch (err) {
     res.status(500).json({ message: 'Erro interno ao tentar fazer login.', error: err.message });
@@ -96,6 +101,11 @@ router.put('/update', authenticateToken, requireRoles("guardian", "driver"), asy
     if (driver_license) data.driver_license = driver_license;
     if (birth_date) data.birth_date = new Date(birth_date);
     if (password) data.password = hashSync(password, 10);
+
+    if (password) {
+      data.password = hashSync(password, 10);
+      data.is_temp_password = false; 
+    }
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
@@ -125,7 +135,10 @@ router.post('/recoverPassword', async (req, res) => {
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { password: hashedPassword },
+      data: { 
+        password: hashedPassword,
+        is_temp_password: true
+     },
     });
 
     const transporter = createTransport({
@@ -164,6 +177,7 @@ router.get('/getProfile', authenticateToken, requireRoles("guardian", "driver"),
         role: true,
         driver_license: true,
         birth_date: true,
+        is_temp_password: true,
       },
     });
 
