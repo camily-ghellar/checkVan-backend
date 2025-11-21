@@ -1,7 +1,9 @@
 import { Router } from "express";
-import { addressToCoords, coordsToAddress, getAddressAutocomplete } from "../services/geocodingService.js";
+import { PrismaClient } from '@prisma/client';
+import { addressToCoords, coordsToAddress, getAddressAutocomplete, getRealTimeEta } from "../services/geocodingService.js";
 
 const router = Router();
+const prisma = new PrismaClient();
 
 router.get("/to-coords", async (req, res) => {
   try {
@@ -38,6 +40,31 @@ router.get("/autocomplete", async (req, res) => {
     res.json(suggestions);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/calculate-eta', async (req, res) => {
+  const { lat, lon, studentId } = req.body;
+
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: Number(studentId) }
+    });
+
+    if (!student || !student.latitude) {
+      return res.status(400).json({ message: 'Aluno sem localização.' });
+    }
+
+    const minutes = await getRealTimeEta(lat, lon, student.latitude, student.longitude);
+
+    if (minutes !== null) {
+      res.json({ minutes });
+    } else {
+      res.json({ minutes: null });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao calcular ETA' });
   }
 });
 

@@ -39,7 +39,13 @@ export async function generateRoute(start, waypoints = [], end) {
 
   const waypointsStr = waypoints.map(w => `${w.lat},${w.lon}`).join('|');
 
-  const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${start.lat},${start.lon}&destination=${end.lat},${end.lon}&waypoints=optimize:true|${waypointsStr}&departure_time=now&language=pt-BR&key=${GOOGLE_MAPS_API_KEY}`;
+  let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${start.lat},${start.lon}&destination=${end.lat},${end.lon}&departure_time=now&traffic_model=best_guess&language=pt-BR&key=${GOOGLE_MAPS_API_KEY}`;
+
+  // pessimista - considera o transito ruim e corta caminho
+  //const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${start.lat},${start.lon}&destination=${end.lat},${end.lon}&waypoints=optimize:true|${waypointsStr}&departure_time=now&traffic_model=pessimistic&language=pt-BR&key=${GOOGLE_MAPS_API_KEY}`;
+  if (waypoints.length > 0) {
+      url += `&waypoints=optimize:true|${waypointsStr}`;
+  }
   
   const response = await fetch(url);
   const data = await response.json();
@@ -49,4 +55,28 @@ export async function generateRoute(start, waypoints = [], end) {
   }
 
   throw new Error(`Erro ao gerar rota: ${data.status} - ${data.error_message || ''}`);
+}
+
+export async function getRealTimeEta(startLat, startLon, destLat, destLon) {
+  if (!startLat || !destLat) return null;
+
+  const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${startLat},${startLon}&destinations=${destLat},${destLon}&departure_time=now&traffic_model=best_guess&language=pt-BR&key=${GOOGLE_MAPS_API_KEY}`;
+
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status === 'OK' && data.rows[0].elements[0].status === 'OK') {
+      const element = data.rows[0].elements[0];
+      
+      const durationSecs = element.duration_in_traffic 
+        ? element.duration_in_traffic.value 
+        : element.duration.value;
+
+      return Math.ceil(durationSecs / 60);
+    }
+  } catch (error) {
+    console.error("Erro ao calcular ETA Google:", error);
+  }
+  return null;
 }
