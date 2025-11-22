@@ -131,8 +131,6 @@ router.post('/send-presence-reminders', authenticateToken, async (req, res) => {
 });
 
 cron.schedule("0 20 * * *", async () => {
-  console.log("⏰ 20h — Enviando lembretes de presença...");
-
   try {
     await axios.post("http://localhost:10000/student/send-presence-reminders", {}, {
       headers: {
@@ -140,7 +138,6 @@ cron.schedule("0 20 * * *", async () => {
       }
     });
 
-    console.log("Lembretes enviados com sucesso!");
   } catch (err) {
     console.error("Erro ao enviar lembretes via cron:", err.message);
   }
