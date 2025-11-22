@@ -94,6 +94,7 @@ model user {
   teams          team[]    @relation("driver_teams")
   vans           van[]     @relation("driver_vans")
   fcm_token      String? 
+  image_profile  String?
   is_temp_password Boolean @default(false)
 }
 

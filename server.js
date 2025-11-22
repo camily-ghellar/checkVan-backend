@@ -9,6 +9,7 @@ import schoolRoutes from './routes/schoolRoutes.js';
 import notificationsRoutes from './routes/notificationsRoutes.js';
 import tripRoutes from './routes/tripRoutes.js';
 import vanRoutes from './routes/vanRoutes.js';
+import utilsRoutes from './routes/utilsRoutes.js';
 
 dotenv.config();
 
@@ -25,6 +26,7 @@ app.use("/routeGenerator", routeGeneratorRoutes);
 app.use("/school", schoolRoutes);
 app.use("/trip", tripRoutes);
 app.use("/van", vanRoutes);
+app.use("/utils", utilsRoutes);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log("Servidor rodando na porta", PORT));
