@@ -362,7 +362,8 @@ router.get('/get/:id', authenticateToken, requireRoles("guardian", "driver"), as
           select: {
             id: true,
             name: true,
-            phone: true
+            phone: true,
+            phone_country: true
           }
         },
         student_team: { 
@@ -390,6 +391,7 @@ router.get('/getAll', authenticateToken, requireRoles("guardian", "driver"), asy
             id: true,
             name: true,
             phone: true,
+            phone_country: true,
             email: true
           }
         },
@@ -414,6 +416,7 @@ router.get('/getStudents', authenticateToken, requireGuardian, async (req, res) 
             id: true,
             name: true,
             phone: true,
+            phone_country: true,
             email: true
           }
         },

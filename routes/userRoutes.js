@@ -47,6 +47,7 @@ router.post('/create', async (req, res) => {
       data: {
         name,
         phone,
+        phone_country,
         email,
         password: hashedPassword,
         role,
@@ -90,13 +91,14 @@ router.post('/login', async (req, res) => {
 
 router.put('/update', authenticateToken, requireRoles("guardian", "driver"), async (req, res) => {
 
-  const { name, phone, email, password, driver_license, birth_date } = req.body;
+  const { name, phone, phone_country, email, password, driver_license, birth_date } = req.body;
   const userId = req.user.id;
 
   try {
     const data = {};
     if (name) data.name = name;
     if (phone) data.phone = phone;
+    if (phone_country) data.phone_country;
     if (email) data.email = email;
     if (driver_license) data.driver_license = driver_license;
     if (birth_date) data.birth_date = new Date(birth_date);
@@ -173,6 +175,7 @@ router.get('/getProfile', authenticateToken, requireRoles("guardian", "driver"),
         id: true,
         name: true,
         phone: true,
+        phone_country: true,
         email: true,
         role: true,
         driver_license: true,
