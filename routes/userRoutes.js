@@ -469,7 +469,6 @@ router.post('/save-fcm-token', authenticateToken, async (req, res) => {
 });
 
 router.post('/upload-image', authenticateToken, upload.single('image_profile'), async (req, res) => {
-  console.log("req.user: ", req.user);
   const userId = req.user.id;
 
   if (!req.file) {
