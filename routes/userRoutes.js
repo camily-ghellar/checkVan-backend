@@ -5,11 +5,14 @@ import { PrismaClient } from '@prisma/client';
 import authenticateToken  from '../middlewares/auth.js';
 import { requireRoles } from "../middlewares/roles.js";
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
+import cloudinary from '../cloudinary.js';
 
 const { sign } = jwt;
 
 const router = Router();
 const prisma = new PrismaClient();
+const upload = multer();
 
 function toDateOnlyUTC(date) {
   const d = new Date(date);
@@ -181,6 +184,7 @@ router.get('/getProfile', authenticateToken, requireRoles("guardian", "driver"),
         driver_license: true,
         birth_date: true,
         is_temp_password: true,
+        image_profile: true,
       },
     });
 
@@ -461,6 +465,49 @@ router.post('/save-fcm-token', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Erro ao salvar FCM token:', err);
     res.status(500).json({ message: 'Erro ao salvar token.', error: err.message });
+  }
+});
+
+router.post('/upload-image', authenticateToken, upload.single('image_profile'), async (req, res) => {
+  console.log("req.user: ", req.user);
+  const userId = req.user.id;
+
+  if (!req.file) {
+    return res.status(400).json({ message: 'Nenhuma imagem enviada.' });
+  }
+
+  try {
+    const uploadToCloudinary = () => {
+      return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'user_profiles',
+            public_id: `user_${userId}`,
+            overwrite: true,
+          },
+          (error, result) => {
+            if (error) return reject(error);
+            if (!result) return reject(new Error('Falha no upload.'));
+            resolve(result);
+          }
+        );
+        uploadStream.end(req.file.buffer);
+      });
+    };
+
+    const uploadResult = await uploadToCloudinary();
+    const imageUrl = uploadResult.secure_url;
+
+    // Salva URL no banco
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { image_profile: imageUrl },
+    });
+
+    res.json({ message: 'Foto de perfil atualizada.', imageUrl });
+  } catch (err) {
+    console.error('Erro no upload:', err);
+    res.status(500).json({ message: 'Erro ao salvar imagem.', error: err.message });
   }
 });
 
