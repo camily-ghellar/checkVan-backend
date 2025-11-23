@@ -8,15 +8,30 @@ import authenticateToken from '../middlewares/auth.js';
 const router = Router();
 const prisma = new PrismaClient();
 
+const getDateOnlyUTC = (date) => {
+  const d = new Date(date);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+const getTodayTripTime = (dateObject, todayUTC) => {
+    const hours = dateObject.getUTCHours();
+    const minutes = dateObject.getUTCMinutes();
+    
+    const tripTimeTodayUTC = new Date(todayUTC);
+    tripTimeTodayUTC.setUTCHours(hours, minutes, 0, 0);
+    return tripTimeTodayUTC;
+}
+
 router.get('/next-trips', authenticateToken, requireDriver, async (req, res) => {
   try {
     const driverId = req.user.id;
     const now = new Date();
+    
+    const todayUTC = getDateOnlyUTC(now); 
 
     const teams = await prisma.team.findMany({
-      where: {
-        driver_id: driverId,
-      },
+      where: { driver_id: driverId },
       include: {
         student_team: true,
         school: true
@@ -28,64 +43,58 @@ router.get('/next-trips', authenticateToken, requireDriver, async (req, res) => 
     }
 
     const formattedTrips = [];
+    const nowMs = now.getTime();
 
     teams.forEach(team => {
-      const nowMs = now.getTime();
-      const teamTrips = [];
-
-      if (team.departure_time_going) {
-        const startTime = new Date(team.departure_time_going);
-
-        // A rota é válida se:
-        // A) A data de partida (startTime) é igual ou posterior à data atual (hoje).
-        // B) Se a rota é para hoje (mesmo dia), a hora de partida ainda não pode ter passado.
-        
-        if (startTime > now) {
-            const diffMinutes = Math.round((startTime.getTime() - nowMs) / 60000);
-
-            let startsIn;
-            if (diffMinutes < 1) startsIn = 'Agora';
-            else if (diffMinutes < 60) startsIn = `Em ${diffMinutes} minuto${diffMinutes > 1 ? 's' : ''}`;
-            else startsIn = `Em ${Math.floor(diffMinutes / 60)}h ${diffMinutes % 60}min`;
-
-            teamTrips.push({
-              teamId: team.id, 
-              tipo: 'Ida',
-              rota: team.name,
-              escola: team.school.name,
-              quantidade_alunos: team.student_team.length,
-              horario_inicio: startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-              comeca_em: startsIn,
-              sortTime: startTime.getTime(), 
-            });
-        }
-      }
-
-      if (team.departure_time_return) {
-        const startTime = new Date(team.departure_time_return);
-
-        if (startTime > now) {
-            const diffMinutes = Math.round((startTime.getTime() - nowMs) / 60000);
-
-            let startsIn;
-            if (diffMinutes < 1) startsIn = 'Agora';
-            else if (diffMinutes < 60) startsIn = `Em ${diffMinutes} minuto${diffMinutes > 1 ? 's' : ''}`;
-            else startsIn = `Em ${Math.floor(diffMinutes / 60)}h ${diffMinutes % 60}min`;
-
-            teamTrips.push({
-              teamId: team.id, 
-              tipo: 'Volta',
-              rota: team.name,
-              escola: team.school.name,
-              quantidade_alunos: team.student_team.length,
-              horario_inicio: startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-              comeca_em: startsIn,
-              sortTime: startTime.getTime(), 
-            });
-        }
-      }
       
-      formattedTrips.push(...teamTrips);
+      const processTrip = (tripBaseDate, type, durationVal) => {
+        if (!tripBaseDate) return;
+
+        const dateOfVigency = new Date(tripBaseDate);
+        const startDateOnlyUTC = getDateOnlyUTC(dateOfVigency);
+        
+        if (startDateOnlyUTC <= todayUTC) {
+            
+            let targetTime = getTodayTripTime(dateOfVigency, todayUTC);
+            let isTomorrow = false;
+
+            let durationMinutes = durationVal || 90;
+            
+            if (durationMinutes < 10) durationMinutes = 60; 
+
+            const expirationTime = targetTime.getTime() + (durationMinutes * 60000);
+
+            if (nowMs > expirationTime) {
+                targetTime = new Date(targetTime.getTime() + 86400000);
+                isTomorrow = true;
+            }
+
+            const diffMinutes = Math.round((targetTime.getTime() - nowMs) / 60000);
+            
+            let startsIn;
+            if (diffMinutes < -10) startsIn = 'Atrasada / Em rota';
+            else if (diffMinutes <= 0) startsIn = 'Agora';
+            else if (diffMinutes < 60) startsIn = `Em ${diffMinutes} min`;
+            else startsIn = `Em ${Math.floor(diffMinutes / 60)}h ${diffMinutes % 60}min`;
+          
+
+            formattedTrips.push({
+                teamId: team.id, 
+                tipo: type,
+                rota: team.name,
+                escola: team.school.name,
+                quantidade_alunos: team.student_team.length,
+                horario_inicio: targetTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                comeca_em: startsIn,
+                sortTime: targetTime.getTime(), 
+                isTomorrow: isTomorrow, 
+                status: isTomorrow ? 'FUTURE' : (diffMinutes <= 0 ? 'ONGOING' : 'PENDING')
+            });
+        }
+      };
+
+      processTrip(team.departure_time_going, 'Ida', team.duration_going);
+      processTrip(team.departure_time_return, 'Volta', team.duration_return);
     });
     
     formattedTrips.sort((a, b) => a.sortTime - b.sortTime);
