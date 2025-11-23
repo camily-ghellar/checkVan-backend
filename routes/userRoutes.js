@@ -35,6 +35,10 @@ router.post('/create', async (req, res) => {
     return res.status(400).json({ message: 'Campos obrigatórios não preenchidos.' });
   }
 
+  if (password.length < 12) {
+    return res.status(400).json({ message: 'A senha deve ter no mínimo 12 caracteres.' });
+  }
+
   if (!['guardian', 'driver'].includes(role)) {
     return res.status(400).json({ message: 'Role inválido. Use guardian ou driver.' });
   }
@@ -107,7 +111,11 @@ router.put('/update', authenticateToken, requireRoles("guardian", "driver"), asy
     if (birth_date) data.birth_date = new Date(birth_date);
     if (password) data.password = hashSync(password, 10);
 
-    if (password) {
+     if (password) {
+      if (password.length < 12) {
+        return res.status(400).json({ message: 'A senha deve ter no mínimo 12 caracteres.' });
+      }
+      
       data.password = hashSync(password, 10);
       data.is_temp_password = false; 
     }
@@ -507,6 +515,23 @@ router.post('/upload-image', authenticateToken, upload.single('image_profile'), 
   } catch (err) {
     console.error('Erro no upload:', err);
     res.status(500).json({ message: 'Erro ao salvar imagem.', error: err.message });
+  }
+});
+
+router.post('/refresh-token', authenticateToken, async (req, res) => {
+  try {
+    const user = req.user; 
+
+    const newToken = sign({ 
+      id: user.id, 
+      role: user.role, 
+      name: user.name, 
+      isTempPassword: user.isTempPassword
+    }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    res.json({ message: 'Token renovado.', token: newToken });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao renovar token.', error: err.message });
   }
 });
 
