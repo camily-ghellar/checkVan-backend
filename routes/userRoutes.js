@@ -29,7 +29,7 @@ function parseTime(timeStr, baseDate) {
 }
 
 router.post('/create', async (req, res) => {
-  const { name, phone, email, password, role, driver_license, birth_date } = req.body;
+  const { name, phone, phone_country, email, password, role, driver_license, birth_date } = req.body;
 
   if (!name || !email || !password || !role) {
     return res.status(400).json({ message: 'Campos obrigatórios não preenchidos.' });
@@ -65,6 +65,7 @@ router.post('/create', async (req, res) => {
 
     res.status(201).json({ message: 'Usuário cadastrado com sucesso.', userId: user.id });
   } catch (err) {
+    console.log("🚀 ~ err:", err);
     res.status(500).json({ message: 'Erro interno ao cadastrar usuário.', error: err.message });
   }
 
