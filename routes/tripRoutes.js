@@ -13,82 +13,93 @@ router.get('/next-trips', authenticateToken, requireDriver, async (req, res) => 
     const driverId = req.user.id;
     const now = new Date();
 
-    const trips = await prisma.team.findMany({
+    const teams = await prisma.team.findMany({
       where: {
         driver_id: driverId,
-        OR: [
-          { departure_time_going: { gte: now } },
-          { departure_time_return: { gte: now } }
-        ],
       },
       include: {
         student_team: true,
         school: true
       },
-      orderBy: [
-        { departure_time_going: 'asc' },
-        { departure_time_return: 'asc' }
-      ]
     });
 
-    if (!trips.length) {
+    if (!teams.length) {
       return res.status(200).json({ message: 'Nenhuma viagem futura encontrada.', trips: [] });
     }
 
-    const formattedTrips = trips.map(trip => {
+    const formattedTrips = [];
+
+    teams.forEach(team => {
       const nowMs = now.getTime();
-      const tripsData = [];
+      const teamTrips = [];
 
-      if (trip.departure_time_going && trip.departure_time_going > now) {
-        const startTime = new Date(trip.departure_time_going);
-        const diffMinutes = Math.round((startTime.getTime() - nowMs) / 60000);
+      if (team.departure_time_going) {
+        const startTime = new Date(team.departure_time_going);
 
-        let startsIn;
-        if (diffMinutes < 1) startsIn = 'Agora';
-        else if (diffMinutes < 60) startsIn = `Em ${diffMinutes} minuto${diffMinutes > 1 ? 's' : ''}`;
-        else startsIn = `Em ${Math.floor(diffMinutes / 60)}h ${diffMinutes % 60}min`;
+        // A rota é válida se:
+        // A) A data de partida (startTime) é igual ou posterior à data atual (hoje).
+        // B) Se a rota é para hoje (mesmo dia), a hora de partida ainda não pode ter passado.
+        
+        if (startTime > now) {
+            const diffMinutes = Math.round((startTime.getTime() - nowMs) / 60000);
 
-        tripsData.push({
-          teamId: trip.id, 
-          tipo: 'Ida',
-          rota: trip.name,
-          escola: trip.school.name,
-          quantidade_alunos: trip.student_team.length,
-          horario_inicio: startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          comeca_em: startsIn,
-        });
+            let startsIn;
+            if (diffMinutes < 1) startsIn = 'Agora';
+            else if (diffMinutes < 60) startsIn = `Em ${diffMinutes} minuto${diffMinutes > 1 ? 's' : ''}`;
+            else startsIn = `Em ${Math.floor(diffMinutes / 60)}h ${diffMinutes % 60}min`;
+
+            teamTrips.push({
+              teamId: team.id, 
+              tipo: 'Ida',
+              rota: team.name,
+              escola: team.school.name,
+              quantidade_alunos: team.student_team.length,
+              horario_inicio: startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+              comeca_em: startsIn,
+              sortTime: startTime.getTime(), 
+            });
+        }
       }
 
-      if (trip.departure_time_return && trip.departure_time_return > now) {
-        const startTime = new Date(trip.departure_time_return);
-        const diffMinutes = Math.round((startTime.getTime() - nowMs) / 60000);
+      if (team.departure_time_return) {
+        const startTime = new Date(team.departure_time_return);
 
-        let startsIn;
-        if (diffMinutes < 1) startsIn = 'Agora';
-        else if (diffMinutes < 60) startsIn = `Em ${diffMinutes} minuto${diffMinutes > 1 ? 's' : ''}`;
-        else startsIn = `Em ${Math.floor(diffMinutes / 60)}h ${diffMinutes % 60}min`;
+        if (startTime > now) {
+            const diffMinutes = Math.round((startTime.getTime() - nowMs) / 60000);
 
-        tripsData.push({
-          teamId: trip.id, 
-          tipo: 'Volta',
-          rota: trip.name,
-          escola: trip.school.name,
-          quantidade_alunos: trip.student_team.length,
-          horario_inicio: startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          comeca_em: startsIn,
-        });
+            let startsIn;
+            if (diffMinutes < 1) startsIn = 'Agora';
+            else if (diffMinutes < 60) startsIn = `Em ${diffMinutes} minuto${diffMinutes > 1 ? 's' : ''}`;
+            else startsIn = `Em ${Math.floor(diffMinutes / 60)}h ${diffMinutes % 60}min`;
+
+            teamTrips.push({
+              teamId: team.id, 
+              tipo: 'Volta',
+              rota: team.name,
+              escola: team.school.name,
+              quantidade_alunos: team.student_team.length,
+              horario_inicio: startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+              comeca_em: startsIn,
+              sortTime: startTime.getTime(), 
+            });
+        }
       }
-
-      return tripsData;
-    }).flat();
+      
+      formattedTrips.push(...teamTrips);
+    });
     
-    formattedTrips.sort((a, b) => {
-        const aDiff = a.comeca_em.startsWith('Agora') ? 0 : (a.comeca_em.includes('h') ? parseInt(a.comeca_em.split('h')[0].replace('Em ', '')) * 60 : parseInt(a.comeca_em.split(' ')[1]));
-        const bDiff = b.comeca_em.startsWith('Agora') ? 0 : (b.comeca_em.includes('h') ? parseInt(b.comeca_em.split('h')[0].replace('Em ', '')) * 60 : parseInt(b.comeca_em.split(' ')[1]));
-        return aDiff - bDiff;
+    formattedTrips.sort((a, b) => a.sortTime - b.sortTime);
+
+    const finalTrips = formattedTrips.map(trip => {
+      const { sortTime, ...rest } = trip;
+      return rest;
     });
 
-    res.status(200).json({ trips: formattedTrips });
+    if (finalTrips.length === 0) {
+       return res.status(200).json({ message: 'Nenhuma viagem futura encontrada.', trips: [] });
+    }
+
+    res.status(200).json({ trips: finalTrips });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Erro ao buscar próximas viagens.', error: err.message });
