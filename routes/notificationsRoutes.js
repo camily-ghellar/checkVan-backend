@@ -276,8 +276,8 @@ router.post('/notify-arrival-school', authenticateToken, requireDriver, async (r
     if (!team) return res.status(404).json({ message: 'Turma não encontrada.' });
 
     let count = 0;
-    
-    // Use admin.messaging().sendMulticast() se tiver muitos tokens
+    const studentIdsToUpdate = team.student_team.map(st => st.student.id);
+
     for (const st of team.student_team) {
       const student = st.student;
       if (student.user?.fcm_token) {
@@ -298,8 +298,19 @@ router.post('/notify-arrival-school', authenticateToken, requireDriver, async (r
         count++;
       }
     }
+    
+    if (studentIdsToUpdate.length > 0) {
+      await prisma.student.updateMany({
+        where: { id: { in: studentIdsToUpdate } },
+        data: { 
+          notifiedBoarding: false,
+          notifiedHome: false, 
+          notifiedSchool: true, 
+        }
+      });
+    }
 
-    res.json({ message: `Notificações de escola enviadas para ${count} alunos.` });
+    res.json({ message: `Notificações de escola enviadas para ${count} alunos e status de rota reiniciado.` });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Erro ao notificar chegada na escola.' });
