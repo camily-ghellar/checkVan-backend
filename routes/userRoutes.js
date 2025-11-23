@@ -342,7 +342,7 @@ function getStudentNextTripStatus(
  * Corpo: { "studentIds": [1, 2, 3] }
  *
  * RETORNO SIMPLIFICADO:
- * { "status": "EM_ROTA" | "AGUARDANDO_CONFIRMACAO" | "AGUARDANDO_OUTROS" | "NAO_VAI" }
+ * { "status": "EM_ROTA" | "AGUARDANDO_CONFIRMACAO" | "AGUARDANDO_OUTROS" | "NAO_VAI" | "SEM_ALUNO" }
  */
 router.post(
   '/guardian/next-trip-status-bulk',
@@ -354,15 +354,14 @@ router.post(
 
     if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
       // Se não há alunos, não há viagem
-      return res.json({ status: 'NAO_VAI' });
+      return res.json({ status: 'SEM_ALUNO' });
     }
 
     const studentIdsInt = studentIds.map((id) => parseInt(id, 10));
-    const now = new Date(); // Horário atual
+    const now = new Date();
 
-    // Define as datas de interesse (hoje e amanhã)
     const todayBase = new Date();
-    todayBase.setHours(0, 0, 0, 0); // Hoje à meia-noite (local)
+    todayBase.setHours(0, 0, 0, 0); 
     const tomorrowBase = new Date(todayBase);
     tomorrowBase.setDate(tomorrowBase.getDate() + 1);
 
@@ -370,11 +369,10 @@ router.post(
     const tomorrowUTC = toDateOnlyUTC(tomorrowBase);
 
     try {
-      // 1. Busca todos os alunos, escolas e turmas (1ª Query)
       const students = await prisma.student.findMany({
         where: {
           id: { in: studentIdsInt },
-          guardian_id: guardianId, // Garante que o guardião só veja seus filhos
+          guardian_id: guardianId, 
         },
         include: {
           school: true,
@@ -389,15 +387,13 @@ router.post(
         return res.json({ status: 'NAO_VAI' });
       }
 
-      // 2. Busca todas as presenças relevantes (2ª Query)
       const presences = await prisma.student_presence.findMany({
         where: {
           student_id: { in: foundStudentIds },
-          date: { in: [todayUTC, tomorrowUTC] }, // Busca hoje e amanhã
+          date: { in: [todayUTC, tomorrowUTC] }, 
         },
       });
 
-      // 3. Transforma presenças em um Mapa para consulta rápida
       const presenceMap = new Map();
       for (const p of presences) {
         const isoDate = p.date.toISOString().slice(0, 10);
@@ -405,7 +401,6 @@ router.post(
         presenceMap.set(key, p.status);
       }
 
-      // 4. Processa cada aluno em memória
       const results = students.map((student) =>
         getStudentNextTripStatus(
           student,
@@ -417,23 +412,16 @@ router.post(
         )
       );
 
-      // --- INÍCIO DA NOVA LÓGICA DE AGREGAÇÃO ---
-
-      // Extrai apenas os status da lista de resultados
       const statuses = results.map((r) => r.status);
 
-      // Prioridade 1: Se QUALQUER aluno está em rota
       if (statuses.includes('EM_ROTA')) {
         return res.json({ status: 'EM_ROTA' });
       }
 
-      // Prioridade 2: Se QUALQUER aluno está aguardando confirmação
       if (statuses.includes('AGUARDANDO_CONFIRMACAO')) {
         return res.json({ status: 'AGUARDANDO_CONFIRMACAO' });
       }
 
-      // Prioridade 3: Se TODOS estão confirmados (ou não vão)
-      // e PELO MENOS UM está 'Aguardando Outros'
       const isWaiting = statuses.includes('AGUARDANDO_OUTROS');
       const allConfirmed = statuses.every(
         (s) => s === 'AGUARDANDO_OUTROS' || s === 'NAO_VAI' || s === 'ERROR'
@@ -443,11 +431,7 @@ router.post(
         return res.json({ status: 'AGUARDANDO_OUTROS' });
       }
       
-      // Prioridade 4: Se TODOS não vão (ou têm erro)
-      // Este é o estado "padrão" se nenhuma das condições acima for atendida
       return res.json({ status: 'NAO_VAI' });
-      
-      // --- FIM DA NOVA LÓGICA DE AGREGAÇÃO ---
 
     } catch (error) {
       console.error('Erro ao buscar status de múltiplas viagens:', error);
