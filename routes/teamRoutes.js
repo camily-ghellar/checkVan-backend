@@ -195,27 +195,62 @@ router.put("/update/:id", authenticateToken, requireDriver, async (req, res) => 
 router.post('/assignStudent', authenticateToken, requireDriver, async (req, res) => {
   const { student_id, team_id } = req.body;
 
+  if (!student_id || !team_id) {
+    return res.status(400).json({ message: 'student_id e team_id são obrigatórios.' });
+  }
+  
+  const studentIdInt = parseInt(student_id, 10);
+  const teamIdInt = parseInt(team_id, 10);
+
+  if (isNaN(studentIdInt) || isNaN(teamIdInt)) {
+      return res.status(400).json({ message: 'IDs de estudante ou turma inválidos.' });
+  }
+
   try {
-    await prisma.student_team.create({
-      data: { student_id, team_id }
+    // encontrar a turma atual do estudante (se houver)
+    const currentAssignment = await prisma.student_team.findFirst({
+      where: { student_id: studentIdInt },
+      select: { team_id: true }
     });
 
-    const updatedTeam = await recalculateTeamRoutes(
-      team_id,
+    const oldTeamId = currentAssignment?.team_id;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.student_team.deleteMany({
+        where: { student_id: studentIdInt }
+      });
+
+      await tx.student_team.create({
+        data: { student_id: studentIdInt, team_id: teamIdInt }
+      });
+    });
+
+    let updatedTeam = await recalculateTeamRoutes(
+      teamIdInt,
       undefined, 
       undefined, 
       undefined  
     );
+
+    // se o estudante foi movido, recalcular a rota da turma antiga
+    if (oldTeamId && oldTeamId !== teamIdInt) {
+        await recalculateTeamRoutes(
+            oldTeamId,
+            undefined, 
+            undefined, 
+            undefined  
+        );
+    }
+    
     res.json({ 
       message: 'Estudante atribuído à turma com sucesso.',
       team: updatedTeam
     });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Erro ao atribuir estudante.', error: err.message });
   }
 });
-
-
 
 router.delete('/delete/:id', authenticateToken, requireDriver, async (req, res) => {
   const driverId = req.user.id;
