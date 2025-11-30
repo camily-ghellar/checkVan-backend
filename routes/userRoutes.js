@@ -212,7 +212,9 @@ function getStudentNextTripStatus(
   presenceMap,
   todayBase,
   todayUTC,
-  tomorrowUTC
+  tomorrowUTC,
+  isWeekend,        
+  nextBusinessDayUTC 
 ) {
   const { school } = student;
   const team = student.student_team[0]?.team;
@@ -240,30 +242,33 @@ function getStudentNextTripStatus(
     };
   }
 
-  // 1. Determinar a Próxima Viagem (lógica de horário)
   let targetDateUTC;
-  let targetDateISO; // 'YYYY-MM-DD' para o mapa
+  let targetDateISO; 
   let tripType;
   let tripTime;
 
-  if (now < morningLimit) {
-    // Cenário 1: Ida de Hoje
+  if (isWeekend) {
     tripType = 'GOING';
     tripTime = team.departure_time_going;
-    targetDateUTC = todayUTC;
-    targetDateISO = todayUTC.toISOString().slice(0, 10);
-  } else if (now < afternoonLimit) {
-    // Cenário 2: Volta de Hoje
-    tripType = 'RETURNING';
-    tripTime = team.departure_time_return;
-    targetDateUTC = todayUTC;
-    targetDateISO = todayUTC.toISOString().slice(0, 10);
+    targetDateUTC = nextBusinessDayUTC;
+    targetDateISO = nextBusinessDayUTC.toISOString().slice(0, 10);
   } else {
-    // Cenário 3: Ida de Amanhã
-    tripType = 'GOING';
-    tripTime = team.departure_time_going;
-    targetDateUTC = tomorrowUTC;
-    targetDateISO = tomorrowUTC.toISOString().slice(0, 10);
+    if (now < morningLimit) {
+      tripType = 'GOING';
+      tripTime = team.departure_time_going;
+      targetDateUTC = todayUTC;
+      targetDateISO = todayUTC.toISOString().slice(0, 10);
+    } else if (now < afternoonLimit) {
+      tripType = 'RETURNING';
+      tripTime = team.departure_time_return;
+      targetDateUTC = todayUTC;
+      targetDateISO = todayUTC.toISOString().slice(0, 10);
+    } else {
+      tripType = 'GOING';
+      tripTime = team.departure_time_going;
+      targetDateUTC = tomorrowUTC;
+      targetDateISO = tomorrowUTC.toISOString().slice(0, 10);
+    }
   }
 
   if (!tripTime) {
@@ -278,14 +283,11 @@ function getStudentNextTripStatus(
 
   const tripInfo = {
     type: tripType,
-    date: targetDateUTC, // Data UTC
-    departureTime: tripTime, // Horário (DateTime)
+    date: targetDateUTC, 
+    departureTime: tripTime, 
   };
 
-  // 2. Determinar o Status da Viagem
-
-  // Status 1: EM ROTA (Prioridade máxima)
-  if (student.notifiedBoarding) {
+  if (!isWeekend && student.notifiedBoarding) {
     return {
       studentId: student.id,
       name: student.name,
@@ -295,12 +297,10 @@ function getStudentNextTripStatus(
     };
   }
 
-  // Status 2: Verificar Presença (Confirmada, Pendente ou Cancelada)
   const presenceKey = `${student.id}-${targetDateISO}`;
-  const presenceStatus = presenceMap.get(presenceKey); // Ex: 'BOTH', 'NONE', ou undefined
+  const presenceStatus = presenceMap.get(presenceKey); 
 
   if (!presenceStatus) {
-    // 2a. AGUARDANDO_CONFIRMACAO (Nenhum registro encontrado)
     return {
       studentId: student.id,
       name: student.name,
@@ -310,7 +310,6 @@ function getStudentNextTripStatus(
     };
   }
 
-  // 2b. NAO_VAI (Presença incompatível)
   const isNotGoing =
     presenceStatus === 'NONE' ||
     (tripType === 'GOING' && presenceStatus === 'RETURNING') ||
@@ -326,8 +325,6 @@ function getStudentNextTripStatus(
     };
   }
 
-  // Status 3: AGUARDANDO_OUTROS
-  // (Presença confirmada, compatível, mas ainda não embarcou)
   return {
     studentId: student.id,
     name: student.name,
@@ -361,6 +358,9 @@ router.post(
     const studentIdsInt = studentIds.map((id) => parseInt(id, 10));
     const now = new Date();
 
+    const dayOfWeek = now.getDay(); 
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
     const todayBase = new Date();
     todayBase.setHours(0, 0, 0, 0); 
     const tomorrowBase = new Date(todayBase);
@@ -368,6 +368,18 @@ router.post(
 
     const todayUTC = toDateOnlyUTC(todayBase);
     const tomorrowUTC = toDateOnlyUTC(tomorrowBase);
+
+    let nextBusinessDayUTC = null;
+    let datesToFetch = [todayUTC, tomorrowUTC];
+
+    if (isWeekend) {
+      const nextBusinessDay = new Date(todayBase);
+      const daysToAdd = dayOfWeek === 0 ? 1 : 2;
+      nextBusinessDay.setDate(nextBusinessDay.getDate() + daysToAdd);
+      
+      nextBusinessDayUTC = toDateOnlyUTC(nextBusinessDay);
+      datesToFetch = [nextBusinessDayUTC];
+    }
 
     try {
       const students = await prisma.student.findMany({
@@ -391,7 +403,7 @@ router.post(
       const presences = await prisma.student_presence.findMany({
         where: {
           student_id: { in: foundStudentIds },
-          date: { in: [todayUTC, tomorrowUTC] }, 
+          date: { in: datesToFetch }, 
         },
       });
 
@@ -409,7 +421,9 @@ router.post(
           presenceMap,
           todayBase,
           todayUTC,
-          tomorrowUTC
+          tomorrowUTC,
+          isWeekend,        
+          nextBusinessDayUTC 
         )
       );
 
@@ -433,7 +447,7 @@ router.post(
       }
       
       return res.json({ status: 'NAO_VAI' });
-
+      
     } catch (error) {
       console.error('Erro ao buscar status de múltiplas viagens:', error);
       res.status(500).json({ error: 'Erro interno no servidor.' });
