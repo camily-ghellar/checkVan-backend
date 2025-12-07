@@ -317,4 +317,33 @@ router.post('/notify-arrival-school', authenticateToken, requireDriver, async (r
   }
 });
 
+const trackingClients = global.trackingClients || new Map(); 
+
+router.post('/update-location', authenticateToken, requireDriver, async (req, res) => {
+  const { teamId, lat, lon, tripType } = req.body;
+  const teamIdInt = parseInt(teamId); 
+
+  if (!teamIdInt || isNaN(teamIdInt) || !lat || !lon || !tripType) {
+    return res.status(400).json({ message: 'Dados de localização incompletos.' });
+  }
+
+  try {
+    const payload = JSON.stringify({ lat, lon, teamId: teamIdInt });
+    
+    if (global.trackingClients.has(teamIdInt)) { 
+        global.trackingClients.get(teamIdInt).forEach(ws => {
+            if (ws.readyState === 1) { 
+                ws.send(payload);
+            }
+        });
+    }
+
+    return res.status(200).json({ message: 'Localização e status de embarque processados.' });
+
+  } catch (e) {
+    console.error("Erro na atualização de localização:", e);
+    return res.status(500).json({ message: 'Erro interno ao processar localização.' });
+  }
+});
+
 export default router;

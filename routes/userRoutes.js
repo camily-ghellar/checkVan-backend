@@ -334,6 +334,34 @@ function getStudentNextTripStatus(
   };
 }
 
+async function getTrackingDataForStudent(studentInRoute) {
+    if (!studentInRoute || studentInRoute.status !== 'EM_ROTA') return null;
+
+    const student = studentInRoute.student;
+    const teamAssignment = student.student_team.find(st => st.team_id);
+    
+    if (!teamAssignment) return null;
+    
+    const team = await prisma.team.findUnique({
+        where: { id: teamAssignment.team_id },
+        select: { 
+            id: true, 
+            name: true, 
+            van: { select: { plate: true } } 
+        }
+    });
+
+    if (!team || !student.latitude || !student.longitude) return null;
+
+    return {
+        teamId: team.id,
+        teamName: team.name,
+        studentLat: student.latitude,
+        studentLon: student.longitude,
+        vanPlate: team.van?.plate || null,
+    };
+}
+
 /**
  * POST /guardian/next-trip-status-bulk
  * Pega o status da próxima viagem para uma lista de alunos.
@@ -356,7 +384,8 @@ router.post(
     }
 
     const studentIdsInt = studentIds.map((id) => parseInt(id, 10));
-    const now = new Date();
+    const now = new Date(2025, 11, 8, 4, 10, 0, 0);
+    // const now = new Date();
 
     const dayOfWeek = now.getDay(); 
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -414,8 +443,8 @@ router.post(
         presenceMap.set(key, p.status);
       }
 
-      const results = students.map((student) =>
-        getStudentNextTripStatus(
+      const results = students.map((student) => {
+        const statusResult = getStudentNextTripStatus(
           student,
           now,
           presenceMap,
@@ -424,13 +453,34 @@ router.post(
           tomorrowUTC,
           isWeekend,        
           nextBusinessDayUTC 
-        )
-      );
+        );
+        return { 
+          ...statusResult, 
+          student: student, 
+        };
+      });
 
       const statuses = results.map((r) => r.status);
 
-      if (statuses.includes('EM_ROTA')) {
-        return res.json({ status: 'EM_ROTA' });
+      const resultInRoute = results.find(r => r.status === 'EM_ROTA');
+      let activeTripData = null;
+
+      if (statuses.includes('EM_ROTA') && resultInRoute) {
+        
+        const student = resultInRoute.student;
+        const teamAssignment = student.student_team[0];
+        const team = teamAssignment?.team;
+
+        if (student.latitude && student.longitude && team) {
+            activeTripData = {
+                teamId: team.id,
+                teamName: team.name,
+                studentLat: student.latitude, 
+                studentLon: student.longitude,
+            };
+        }
+        
+        return res.json({ status: 'EM_ROTA', activeTripData });
       }
 
       if (statuses.includes('AGUARDANDO_CONFIRMACAO')) {
