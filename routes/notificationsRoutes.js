@@ -317,10 +317,10 @@ router.post('/notify-arrival-school', authenticateToken, requireDriver, async (r
   }
 });
 
-const trackingClients = global.trackingClients || new Map(); 
+const lastKnownLocations = new Map(); 
 
 router.post('/update-location', authenticateToken, requireDriver, async (req, res) => {
-  const { teamId, lat, lon, tripType } = req.body;
+  const { teamId, lat, lon, tripType, heading } = req.body;
   const teamIdInt = parseInt(teamId); 
 
   if (!teamIdInt || isNaN(teamIdInt) || !lat || !lon || !tripType) {
@@ -328,9 +328,11 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
   }
 
   try {
-    const payload = JSON.stringify({ lat, lon, teamId: teamIdInt });
+    lastKnownLocations.set(teamIdInt, { lat, lon, heading, timestamp: new Date() }); // Salva heading
+
+    const payload = JSON.stringify({ lat, lon, teamId: teamIdInt, heading }); 
     
-    if (global.trackingClients.has(teamIdInt)) { 
+    if (global.trackingClients.has(teamIdInt)) {
         global.trackingClients.get(teamIdInt).forEach(ws => {
             if (ws.readyState === 1) { 
                 ws.send(payload);
@@ -344,6 +346,27 @@ router.post('/update-location', authenticateToken, requireDriver, async (req, re
     console.error("Erro na atualização de localização:", e);
     return res.status(500).json({ message: 'Erro interno ao processar localização.' });
   }
+});
+
+router.get('/last-location/:teamId', authenticateToken, async (req, res) => {
+    const teamId = parseInt(req.params.teamId);
+
+    if (isNaN(teamId)) {
+        return res.status(400).json({ message: 'ID de time inválido.' });
+    }
+
+    const locationData = lastKnownLocations.get(teamId);
+
+    if (locationData) {
+        return res.json({ 
+            lat: locationData.lat, 
+            lon: locationData.lon,
+            heading: locationData.heading || 0.0, 
+            timestamp: locationData.timestamp
+        });
+    } else {
+        return res.status(404).json({ message: 'Localização da van não encontrada.' });
+    }
 });
 
 export default router;
