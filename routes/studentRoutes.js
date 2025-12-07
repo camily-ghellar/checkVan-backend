@@ -20,6 +20,21 @@ function toDateOnlyUTC(date) {
   return new Date(Date.UTC(year, month, day));
 }
 
+function getNextWeekday(date) {
+    const d = new Date(date);
+    const day = d.getDay(); 
+    const isSaturday = day === 6;
+    const isSunday = day === 0;
+    
+    if (isSaturday) {
+        d.setDate(d.getDate() + 2);
+    } else if (isSunday) {
+        d.setDate(d.getDate() + 1);
+    }
+    return d;
+}
+
+const CUTOFF_HOUR_UTC = 21; 
 
 router.post('/create', authenticateToken, requireGuardian, async (req, res) => {
   const { name, birth_date, gender, school_id, address, shift_going, shift_return } = req.body;
@@ -441,12 +456,23 @@ router.get('/presence-summary', authenticateToken, requireGuardian, async (req, 
     const now = new Date();
     let targetDate = new Date();
 
-    // A regra de negócio para definir se é hoje ou amanhã permanece a mesma.
-    // O corte de 18:00 no fuso de Blumenau (UTC-3) equivale a 21:00 em UTC.
-    if (now.getUTCHours() >= 21) {
-      targetDate.setUTCDate(targetDate.getUTCDate() + 1);
+    const isWeekend = targetDate.getDay() === 6 || targetDate.getDay() === 0;
+    if (isWeekend) {
+        targetDate = getNextWeekday(targetDate);
+    } 
+    else {
+      if (now.getUTCHours() >= CUTOFF_HOUR_UTC) {
+        targetDate.setUTCDate(targetDate.getUTCDate() + 1);
+        const isSaturday = day === 6;
+        const isSunday = day === 0;
+        if (isSaturday) {
+            targetDate.setUTCDate(targetDate.getUTCDate() + 2);
+        } else if (isSunday) {
+            targetDate.setUTCDate(targetDate.getUTCDate() + 1);
+        }
+      }
     }
-
+    
     const dateForQuery = toDateOnlyUTC(targetDate.toISOString());
 
     const students = await prisma.student.findMany({
