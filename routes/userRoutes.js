@@ -384,8 +384,7 @@ router.post(
     }
 
     const studentIdsInt = studentIds.map((id) => parseInt(id, 10));
-    const now = new Date(2025, 11, 8, 4, 10, 0, 0);
-    // const now = new Date();
+    const now = new Date();
 
     const dayOfWeek = now.getDay(); 
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
